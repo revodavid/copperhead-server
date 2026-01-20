@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import random
 import logging
 from datetime import datetime
@@ -23,6 +24,27 @@ app = FastAPI(title="CopperHead Server")
 async def startup_event():
     logger.info("🐍 CopperHead Server started")
     logger.info(f"   Grid: {GRID_WIDTH}x{GRID_HEIGHT}, Tick rate: {TICK_RATE}s")
+    
+    # Detect Codespaces environment
+    codespace_name = os.environ.get("CODESPACE_NAME")
+    github_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    
+    if codespace_name:
+        ws_url = f"wss://{codespace_name}-8000.{github_domain}/ws/"
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info("📡 CLIENT CONNECTION URL:")
+        logger.info(f"   {ws_url}")
+        logger.info("")
+        logger.info("⚠️  IMPORTANT: Make port 8000 public!")
+        logger.info("   1. Open the Ports tab (bottom panel)")
+        logger.info("   2. Right-click port 8000 → Port Visibility → Public")
+        logger.info("=" * 60)
+        logger.info("")
+    else:
+        logger.info("")
+        logger.info("📡 Client connection URL: ws://localhost:8000/ws/")
+        logger.info("")
 
 GRID_WIDTH = 30
 GRID_HEIGHT = 20
