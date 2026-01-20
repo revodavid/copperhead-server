@@ -2,6 +2,8 @@
 
 A server for a 2-player Snake game. CopperHead manages game state and scoring, communicating with player clients via WebSocket API.
 
+**Client:** [copperhead-client](https://github.com/revodavid/copperhead-client) | [Play Online](https://revodavid.github.io/copperhead-client/)
+
 ## Features
 
 - Real-time 2-player Snake game
