@@ -127,7 +127,14 @@ class Game:
 
         for snake in self.snakes.values():
             if snake.alive:
-                grow = snake.head() == self.food if self.food else False
+                # Calculate where the snake will move to
+                hx, hy = snake.head()
+                moves = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
+                dx, dy = moves[snake.next_direction]
+                next_head = (hx + dx, hy + dy)
+                
+                # Check if next position has food
+                grow = next_head == self.food if self.food else False
                 snake.move(grow)
                 if grow:
                     snake.score += 10
