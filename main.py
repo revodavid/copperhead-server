@@ -58,7 +58,6 @@ class Snake:
         self.direction = direction
         self.next_direction = direction
         self.input_queue: list[str] = []
-        self.score = 0
         self.alive = True
 
     def head(self) -> tuple[int, int]:
@@ -114,7 +113,6 @@ class Snake:
             "player_id": self.player_id,
             "body": self.body,
             "direction": self.direction,
-            "score": self.score,
             "alive": self.alive,
         }
 
@@ -156,11 +154,10 @@ class Game:
                 # Calculate where the snake will actually move to (accounting for input queue)
                 next_head = snake.get_next_head()
                 
-                # Check if next position has food
+                # Check if next position has food - eating makes snake grow
                 grow = next_head == self.food if self.food else False
                 snake.move(grow)
                 if grow:
-                    snake.score += 10
                     self.spawn_food()
 
         # Check collisions
@@ -344,6 +341,7 @@ class GameManager:
         self.pending_mode: str = "two_player"
         self.ai_player: Optional[AIPlayer] = None
         self.ai_player_id: Optional[int] = None
+        self.wins: dict[int, int] = {1: 0, 2: 0}  # Track games won per player
 
     async def connect(self, player_id: int, websocket: WebSocket):
         await websocket.accept()
@@ -362,6 +360,7 @@ class GameManager:
         self.pending_mode = "two_player"
         self.ai_player = None
         self.ai_player_id = None
+        self.wins = {1: 0, 2: 0}  # Reset wins on disconnect
         logger.info(f"❌ Player {player_id} disconnected ({len(self.connections)} player(s) online)")
 
     async def handle_message(self, player_id: int, data: dict):
@@ -429,22 +428,22 @@ class GameManager:
                 self.game.update()
                 await self.broadcast_state()
                 if not self.game.running:
-                    scores = {pid: s.score for pid, s in self.game.snakes.items()}
                     if self.game.winner:
+                        self.wins[self.game.winner] += 1
                         winner_label = f"Player {self.game.winner}"
                         if self.ai_player and self.game.winner == self.ai_player_id:
                             winner_label = "AI"
-                        logger.info(f"🏆 Game over! {winner_label} wins! Scores: {scores}")
+                        logger.info(f"🏆 Game over! {winner_label} wins! Wins: {dict(self.wins)}")
                     else:
-                        logger.info(f"🏁 Game over! Draw. Scores: {scores}")
-                    await self.broadcast({"type": "gameover", "winner": self.game.winner})
+                        logger.info(f"🏁 Game over! Draw. Wins: {dict(self.wins)}")
+                    await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins})
                     self.ready.clear()
                 await asyncio.sleep(TICK_RATE)
         except asyncio.CancelledError:
             pass
 
     async def broadcast_state(self):
-        await self.broadcast({"type": "state", "game": self.game.to_dict()})
+        await self.broadcast({"type": "state", "game": self.game.to_dict(), "wins": self.wins})
 
     async def broadcast(self, message: dict):
         disconnected = []
