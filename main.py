@@ -527,6 +527,7 @@ class RoomManager:
     def __init__(self):
         self.rooms: dict[int, GameRoom] = {}
         self._matchmaking_lock = asyncio.Lock()
+        self.lobby_observers: list[WebSocket] = []  # Observers waiting for a game
     
     async def find_or_create_room(self) -> tuple[Optional[GameRoom], int]:
         """Thread-safe matchmaking: find a waiting room or create a new one."""
@@ -581,6 +582,7 @@ class RoomManager:
             for r in rooms
         ]
         
+        # Notify observers in rooms
         for room in self.rooms.values():
             for ws in room.observers[:]:  # Copy list to avoid modification during iteration
                 try:
@@ -591,6 +593,36 @@ class RoomManager:
                     })
                 except Exception:
                     pass  # Observer disconnected, will be cleaned up later
+        
+        # Notify lobby observers and auto-join them to first active game
+        if rooms and self.lobby_observers:
+            first_room = rooms[0]
+            for ws in self.lobby_observers[:]:
+                try:
+                    # Move from lobby to room
+                    first_room.observers.append(ws)
+                    await ws.send_json({
+                        "type": "observer_joined",
+                        "room_id": first_room.room_id,
+                        "game": first_room.game.to_dict(),
+                        "wins": first_room.wins,
+                        "names": first_room.names
+                    })
+                    logger.info(f"👁️ Lobby observer joined Room {first_room.room_id}")
+                except Exception:
+                    pass
+            self.lobby_observers.clear()
+        elif not rooms:
+            # Send empty room list to lobby observers
+            for ws in self.lobby_observers[:]:
+                try:
+                    await ws.send_json({
+                        "type": "room_list",
+                        "rooms": [],
+                        "current_room": None
+                    })
+                except Exception:
+                    pass
     
     def create_room(self) -> Optional[GameRoom]:
         """Create a new room if slots available."""
@@ -664,14 +696,31 @@ async def join_game(websocket: WebSocket):
 @app.websocket("/ws/observe")
 async def observe_game(websocket: WebSocket):
     """Observe an active game. Supports switching rooms via messages."""
+    await websocket.accept()
+    
     room = room_manager.find_active_room()
+    current_room = room
+    in_lobby = False
     
     if not room:
-        await websocket.close(code=4003, reason="No active game to observe")
-        return
-    
-    await room.connect_observer(websocket)
-    current_room = room
+        # No active games - put observer in lobby
+        room_manager.lobby_observers.append(websocket)
+        in_lobby = True
+        await websocket.send_json({
+            "type": "observer_lobby",
+            "message": "No active games. Waiting for a game to start..."
+        })
+        logger.info(f"👁️ Observer joined lobby (waiting for games)")
+    else:
+        room.observers.append(websocket)
+        await websocket.send_json({
+            "type": "observer_joined",
+            "room_id": room.room_id,
+            "game": room.game.to_dict(),
+            "wins": room.wins,
+            "names": room.names
+        })
+        logger.info(f"👁️ [Room {room.room_id}] Observer connected ({len(room.observers)} observer(s))")
     
     try:
         while True:
@@ -681,7 +730,7 @@ async def observe_game(websocket: WebSocket):
                 data = json.loads(message)
                 action = data.get("action")
                 
-                if action == "switch_room":
+                if action == "switch_room" and current_room:
                     target_room_id = data.get("room_id")
                     target_room = room_manager.get_room_by_id(target_room_id)
                     
@@ -691,6 +740,7 @@ async def observe_game(websocket: WebSocket):
                         # Connect to new room
                         current_room = target_room
                         current_room.observers.append(websocket)
+                        in_lobby = False
                         await websocket.send_json({
                             "type": "observer_joined",
                             "room_id": current_room.room_id,
@@ -718,12 +768,17 @@ async def observe_game(websocket: WebSocket):
                             }
                             for r in rooms
                         ],
-                        "current_room": current_room.room_id
+                        "current_room": current_room.room_id if current_room else None
                     })
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:
-        current_room.disconnect_observer(websocket)
+        if in_lobby:
+            if websocket in room_manager.lobby_observers:
+                room_manager.lobby_observers.remove(websocket)
+            logger.info(f"👁️ Observer left lobby")
+        elif current_room:
+            current_room.disconnect_observer(websocket)
 
 
 # Legacy endpoint for backward compatibility
