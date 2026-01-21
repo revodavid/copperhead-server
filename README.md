@@ -7,9 +7,10 @@ A server for a 2-player Snake game. CopperHead manages game state and scoring, c
 ## Features
 
 - Real-time 2-player Snake game
+- Up to 10 simultaneous game rooms
+- Built-in AI opponent (ServerBot)
+- Observer mode for spectating games
 - WebSocket-based communication
-- Game state management
-- Score tracking
 
 ## Requirements
 
@@ -24,7 +25,29 @@ A server for a 2-player Snake game. CopperHead manages game state and scoring, c
 2. Select the **Codespaces** tab
 3. Click **Create codespace on main**
 
-The server will automatically start and be available at port 8000. Codespaces will prompt you to open the forwarded port.
+The server will automatically start on port 8000.
+
+### Finding Your Server URL for Clients
+
+1. Open the **Ports** tab in the bottom panel of your Codespace
+2. Find port **8000** in the list
+3. **Right-click** on port 8000 → **Port Visibility** → **Public** (required for external connections)
+4. Copy the forwarded address (it looks like `https://your-codespace-name-8000.app.github.dev`)
+5. Use this URL format for the client:
+   ```
+   wss://your-codespace-name-8000.app.github.dev/ws
+   ```
+
+**Example:** If your Codespace URL is:
+```
+https://bookish-fortnight-p7wqx7rw7h96w7-8000.app.github.dev
+```
+Then your client Server URL is:
+```
+wss://bookish-fortnight-p7wqx7rw7h96w7-8000.app.github.dev/ws
+```
+
+**Note:** Use `wss://` (not `ws://`) for Codespaces since it uses HTTPS.
 
 ## Local Installation
 
@@ -38,27 +61,33 @@ pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+For local servers, use: `ws://localhost:8000/ws`
+
 ## API
 
-### WebSocket Endpoint
+### WebSocket Endpoints
 
-Connect to `ws://localhost:8000/ws/{player_id}` where `player_id` is 1 or 2.
+- `/ws/join` - Auto-matchmaking (recommended)
+- `/ws/observe` - Observe active games
+- `/ws/{player_id}` - Legacy endpoint (player_id: 1 or 2)
 
 ### Messages
 
 **Client → Server:**
+- `{"action": "ready", "mode": "vs_ai|two_player", "name": "PlayerName"}` - Ready to play
 - `{"action": "move", "direction": "up|down|left|right"}` - Change snake direction
-- `{"action": "ready", "mode": "one_player|two_player"}` - Signal ready to start (mode optional, defaults to two_player)
+- `{"action": "set_ai_difficulty", "ai_difficulty": 1-10}` - Change AI difficulty
 
 **Server → Client:**
-- `{"type": "state", "game": {...}}` - Game state update
-- `{"type": "start", "mode": "one_player|two_player"}` - Game started
+- `{"type": "joined", "room_id": 1, "player_id": 1}` - Joined a room
+- `{"type": "state", "game": {...}, "wins": {...}, "names": {...}}` - Game state update
+- `{"type": "start", "mode": "..."}` - Game started
 - `{"type": "gameover", "winner": 1|2|null}` - Game ended
 
 ## Game Modes
 
-- **one_player**: Traditional Snake - maximize your score by eating food
-- **two_player**: Competitive - outlast your opponent
+- **vs_ai**: Play against ServerBot (adjustable difficulty 1-10)
+- **two_player**: Play against another human or CopperBot
 
 ## License
 
