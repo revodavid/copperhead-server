@@ -342,6 +342,7 @@ class GameManager:
         self.ai_player: Optional[AIPlayer] = None
         self.ai_player_id: Optional[int] = None
         self.wins: dict[int, int] = {1: 0, 2: 0}  # Track games won per player
+        self.names: dict[int, str] = {1: "Player 1", 2: "Player 2"}  # Player names
 
     async def connect(self, player_id: int, websocket: WebSocket):
         await websocket.accept()
@@ -361,6 +362,7 @@ class GameManager:
         self.ai_player = None
         self.ai_player_id = None
         self.wins = {1: 0, 2: 0}  # Reset wins on disconnect
+        self.names = {1: "Player 1", 2: "Player 2"}  # Reset names
         logger.info(f"❌ Player {player_id} disconnected ({len(self.connections)} player(s) online)")
 
     async def handle_message(self, player_id: int, data: dict):
@@ -380,18 +382,23 @@ class GameManager:
             if mode in ("two_player", "vs_ai"):
                 self.pending_mode = mode
             
+            # Set player name
+            name = data.get("name", f"Player {player_id}")
+            self.names[player_id] = name
+            
             # Handle AI opponent setup
             if mode == "vs_ai":
                 ai_difficulty = data.get("ai_difficulty", 5)
                 self.ai_player = AIPlayer(difficulty=ai_difficulty)
                 self.ai_player_id = 2 if player_id == 1 else 1
+                self.names[self.ai_player_id] = "ServerBot"
                 logger.info(f"🤖 AI opponent enabled (difficulty: {ai_difficulty}, player: {self.ai_player_id})")
             else:
                 self.ai_player = None
                 self.ai_player_id = None
             
             self.ready.add(player_id)
-            logger.info(f"👍 Player {player_id} ready (mode: {self.pending_mode})")
+            logger.info(f"👍 {name} (Player {player_id}) ready (mode: {self.pending_mode})")
             
             # For vs_ai mode, only need 1 human player
             if self.pending_mode == "vs_ai":
@@ -436,14 +443,14 @@ class GameManager:
                         logger.info(f"🏆 Game over! {winner_label} wins! Wins: {dict(self.wins)}")
                     else:
                         logger.info(f"🏁 Game over! Draw. Wins: {dict(self.wins)}")
-                    await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins})
+                    await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins, "names": self.names})
                     self.ready.clear()
                 await asyncio.sleep(TICK_RATE)
         except asyncio.CancelledError:
             pass
 
     async def broadcast_state(self):
-        await self.broadcast({"type": "state", "game": self.game.to_dict(), "wins": self.wins})
+        await self.broadcast({"type": "state", "game": self.game.to_dict(), "wins": self.wins, "names": self.names})
 
     async def broadcast(self, message: dict):
         disconnected = []
