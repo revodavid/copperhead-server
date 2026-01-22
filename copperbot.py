@@ -52,28 +52,26 @@ class RobotPlayer:
             return False
     
     async def play(self):
-        """Main game loop with auto-reconnect."""
-        while True:
-            if not await self.connect():
-                self.log("Failed to connect to server. Retrying in 3 seconds...")
-                await asyncio.sleep(3)
-                continue
-                
-            self.running = True
+        """Main game loop - terminates on disconnect."""
+        if not await self.connect():
+            self.log("Failed to connect to server. Terminating.")
+            raise SystemExit(1)
             
-            try:
-                while self.running:
-                    message = await self.ws.recv()
-                    data = json.loads(message)
-                    await self.handle_message(data)
-            except websockets.ConnectionClosed:
-                self.log("Connection closed. Reconnecting in 2 seconds...")
-                await asyncio.sleep(2)
-            except Exception as e:
-                self.log(f"Error: {e}. Reconnecting in 2 seconds...")
-                await asyncio.sleep(2)
-            finally:
-                self.running = False
+        self.running = True
+        
+        try:
+            while self.running:
+                message = await self.ws.recv()
+                data = json.loads(message)
+                await self.handle_message(data)
+        except websockets.ConnectionClosed:
+            self.log("Connection closed. Terminating.")
+            raise SystemExit(0)
+        except Exception as e:
+            self.log(f"Error: {e}. Terminating.")
+            raise SystemExit(1)
+        finally:
+            self.running = False
             
     async def handle_message(self, data: dict):
         """Handle incoming server messages."""
@@ -109,22 +107,50 @@ class RobotPlayer:
         elif msg_type == "gameover":
             self.games_played += 1
             winner = data.get("winner")
+            my_wins = data.get("wins", {}).get(str(self.player_id), 0) or data.get("wins", {}).get(self.player_id, 0)
+            opp_id = 3 - self.player_id
+            opp_wins = data.get("wins", {}).get(str(opp_id), 0) or data.get("wins", {}).get(opp_id, 0)
+            points_to_win = data.get("points_to_win", 5)
+            
             if winner == self.player_id:
                 self.wins += 1
-                self.log(f"Won! ({self.wins}/{self.games_played} games)")
+                self.log(f"Won game! (Match: {my_wins}-{opp_wins}, first to {points_to_win})")
             elif winner:
-                self.log(f"Lost! ({self.wins}/{self.games_played} games)")
+                self.log(f"Lost game! (Match: {my_wins}-{opp_wins}, first to {points_to_win})")
             else:
-                self.log(f"Draw! ({self.wins}/{self.games_played} games)")
+                self.log(f"Draw! (Match: {my_wins}-{opp_wins}, first to {points_to_win})")
             
-            # Auto-ready for next game
-            await asyncio.sleep(1)
-            await self.ws.send(json.dumps({
-                "action": "ready",
-                "mode": "two_player",
-                "name": f"CopperBot L{self.difficulty}"
-            }))
-            self.log("Ready for next game!")
+            # Server automatically keeps players ready between games in a match
+            # No need to send ready again - just continue processing messages
+            self.log("Waiting for next game...")
+        
+        elif msg_type == "match_complete":
+            # Match is over - check if we won or lost
+            winner_id = data.get("winner", {}).get("player_id")
+            winner_name = data.get("winner", {}).get("name", "Unknown")
+            final_score = data.get("final_score", {})
+            my_score = final_score.get(str(self.player_id), 0) or final_score.get(self.player_id, 0)
+            opp_id = 3 - self.player_id
+            opp_score = final_score.get(str(opp_id), 0) or final_score.get(opp_id, 0)
+            
+            if winner_id == self.player_id:
+                self.log(f"🏆 Match won! Final: {my_score}-{opp_score}")
+                self.log("Waiting for next round assignment...")
+                # Don't sleep - server will send match_assigned for next round
+            else:
+                self.log(f"Match lost to {winner_name}. Final: {my_score}-{opp_score}")
+                self.log("Terminating...")
+                self.running = False
+                await self.ws.close()
+                raise SystemExit(0)
+        
+        elif msg_type == "match_assigned":
+            # Assigned to a new match (Round 2+)
+            self.room_id = data.get("room_id")
+            self.player_id = data.get("player_id")
+            self.game_state = None  # Reset game state for new match
+            opponent = data.get("opponent", "Opponent")
+            self.log(f"🎮 Assigned to Arena {self.room_id} as Player {self.player_id} vs {opponent}")
             
         elif msg_type == "waiting":
             self.log("Waiting for opponent...")

@@ -1,5 +1,6 @@
-"""CopperHead Server - 2-player Snake game server."""
+"""CopperHead Server - 2-player Snake game server with competition mode."""
 
+import argparse
 import asyncio
 import json
 import os
@@ -9,7 +10,9 @@ import subprocess
 import sys
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
+from enum import Enum
 
 # Configure logging
 logging.basicConfig(
@@ -19,13 +22,40 @@ logging.basicConfig(
 )
 logger = logging.getLogger("copperhead")
 
+# Server configuration (set by CLI args or defaults)
+class ServerConfig:
+    arenas: int = 1
+    points_to_win: int = 5
+    reset_delay: int = 10
+    grid_width: int = 30
+    grid_height: int = 20
+    tick_rate: float = 0.15
+    bots: int = 0
+
+config = ServerConfig()
+
+# For backward compatibility
+GRID_WIDTH = property(lambda self: config.grid_width)
+GRID_HEIGHT = property(lambda self: config.grid_height)
+TICK_RATE = property(lambda self: config.tick_rate)
+
 app = FastAPI(title="CopperHead Server")
+
+# Enable CORS for client requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("🐍 CopperHead Server started")
-    logger.info(f"   Grid: {GRID_WIDTH}x{GRID_HEIGHT}, Tick rate: {TICK_RATE}s")
+    logger.info(f"   Grid: {config.grid_width}x{config.grid_height}, Tick rate: {config.tick_rate}s")
+    logger.info(f"   Arenas: {config.arenas}, Points to win: {config.points_to_win}")
     
     # Detect Codespaces environment
     codespace_name = os.environ.get("CODESPACE_NAME")
@@ -47,10 +77,353 @@ async def startup_event():
         logger.info("")
         logger.info("📡 Client connection URL: ws://localhost:8000/ws/")
         logger.info("")
+    
+    # Initialize competition
+    await competition.start_waiting()
 
-GRID_WIDTH = 30
-GRID_HEIGHT = 20
-TICK_RATE = 0.15  # seconds between game updates
+
+class CompetitionState(Enum):
+    WAITING_FOR_PLAYERS = "waiting_for_players"
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+    RESETTING = "resetting"
+
+
+class PlayerInfo:
+    """Track a player in the competition."""
+    def __init__(self, player_uid: str, name: str, websocket: WebSocket):
+        self.uid = player_uid  # Unique ID across competition
+        self.name = name
+        self.websocket = websocket
+        self.match_wins = 0  # Matches won in competition
+        self.game_points = 0  # Total game points across all matches
+        self.opponent_points = 0  # Opponent's total points (for tiebreaker)
+        self.eliminated = False
+        self.current_room: Optional["GameRoom"] = None
+        self.current_player_id: Optional[int] = None  # 1 or 2 in current room
+        self.last_match_finish_time: float = 0  # Timestamp when last match finished (for Bye tiebreaker)
+
+
+class MatchResult:
+    """Result of a completed match."""
+    def __init__(self, player1_uid: str, player2_uid: str, winner_uid: str,
+                 player1_points: int, player2_points: int):
+        self.player1_uid = player1_uid
+        self.player2_uid = player2_uid
+        self.winner_uid = winner_uid
+        self.player1_points = player1_points
+        self.player2_points = player2_points
+
+
+class Competition:
+    """Manages a round-robin knockout competition."""
+    
+    def __init__(self):
+        self.state = CompetitionState.WAITING_FOR_PLAYERS
+        self.players: dict[str, PlayerInfo] = {}  # uid -> PlayerInfo
+        self.current_round = 0
+        self.rounds: list[list[tuple[str, str]]] = []  # Each round is list of (uid1, uid2) pairings
+        self.match_results: list[list[MatchResult]] = []  # Results per round
+        self.champion_uid: Optional[str] = None
+        self.current_bye_uid: Optional[str] = None  # Player with Bye in current round
+        self._lock = asyncio.Lock()
+        self._next_uid = 1
+    
+    def _generate_uid(self) -> str:
+        uid = f"P{self._next_uid}"
+        self._next_uid += 1
+        return uid
+    
+    async def start_waiting(self):
+        """Initialize competition to waiting state."""
+        self.state = CompetitionState.WAITING_FOR_PLAYERS
+        self.players.clear()
+        self.current_round = 0
+        self.rounds.clear()
+        self.match_results.clear()
+        self.champion_uid = None
+        self.current_bye_uid = None
+        self._next_uid = 1
+        logger.info(f"🏆 Competition waiting for {config.arenas * 2} players")
+    
+    def required_players(self) -> int:
+        return config.arenas * 2
+    
+    async def register_player(self, name: str, websocket: WebSocket) -> Optional[PlayerInfo]:
+        """Register a player for the competition. Returns PlayerInfo if accepted."""
+        async with self._lock:
+            if self.state != CompetitionState.WAITING_FOR_PLAYERS:
+                return None
+            
+            if len(self.players) >= self.required_players():
+                return None
+            
+            uid = self._generate_uid()
+            player = PlayerInfo(uid, name, websocket)
+            self.players[uid] = player
+            
+            logger.info(f"📝 {name} ({uid}) registered ({len(self.players)}/{self.required_players()})")
+            
+            # Broadcast updated lobby status
+            await self._broadcast_lobby_status()
+            
+            # Check if we have enough players to start
+            if len(self.players) >= self.required_players():
+                await self._start_competition()
+            
+            return player
+    
+    async def unregister_player(self, uid: str):
+        """Remove a player from competition."""
+        async with self._lock:
+            if uid not in self.players:
+                return
+            
+            player = self.players[uid]
+            
+            if self.state == CompetitionState.WAITING_FOR_PLAYERS:
+                del self.players[uid]
+                logger.info(f"📝 {player.name} ({uid}) left lobby ({len(self.players)}/{self.required_players()})")
+                await self._broadcast_lobby_status()
+            elif self.state == CompetitionState.IN_PROGRESS:
+                # Mark as eliminated - opponent wins by forfeit
+                player.eliminated = True
+                logger.info(f"🚪 {player.name} ({uid}) disconnected - forfeit")
+                # The room will handle the forfeit logic
+    
+    async def _broadcast_lobby_status(self):
+        """Send lobby status to all waiting players."""
+        status = {
+            "type": "lobby_status",
+            "players": [{"uid": p.uid, "name": p.name} for p in self.players.values()],
+            "required": self.required_players(),
+            "current": len(self.players)
+        }
+        for player in self.players.values():
+            try:
+                await player.websocket.send_json(status)
+            except Exception:
+                pass
+    
+    async def _start_competition(self):
+        """Start the competition with all registered players."""
+        self.state = CompetitionState.IN_PROGRESS
+        self.current_round = 1
+        
+        # Randomly pair players for round 1
+        uids = list(self.players.keys())
+        random.shuffle(uids)
+        pairings = [(uids[i], uids[i + 1]) for i in range(0, len(uids), 2)]
+        self.rounds.append(pairings)
+        self.match_results.append([])
+        
+        logger.info(f"🏆 Competition started! Round 1 with {len(pairings)} matches")
+        for i, (uid1, uid2) in enumerate(pairings):
+            p1, p2 = self.players[uid1], self.players[uid2]
+            logger.info(f"   Arena {i + 1}: {p1.name} vs {p2.name}")
+        
+        # Notify all players and create rooms
+        await self._broadcast_competition_status()
+        await self._create_round_matches()
+    
+    async def _create_round_matches(self):
+        """Create game rooms for current round's matches."""
+        pairings = self.rounds[self.current_round - 1]
+        
+        for arena_id, (uid1, uid2) in enumerate(pairings, 1):
+            player1 = self.players[uid1]
+            player2 = self.players[uid2]
+            
+            # Create a room for this match
+            room = room_manager.create_competition_room(arena_id, uid1, uid2)
+            
+            player1.current_room = room
+            player1.current_player_id = 1
+            player2.current_room = room
+            player2.current_player_id = 2
+            
+            # Connect players to their room
+            await room.connect_competition_player(1, player1)
+            await room.connect_competition_player(2, player2)
+    
+    async def report_match_complete(self, room: "GameRoom", winner_uid: str, 
+                                     p1_uid: str, p2_uid: str, p1_points: int, p2_points: int):
+        """Called when a match (first to points_to_win) completes."""
+        import time
+        async with self._lock:
+            try:
+                result = MatchResult(p1_uid, p2_uid, winner_uid, p1_points, p2_points)
+                self.match_results[self.current_round - 1].append(result)
+                
+                # Update player stats
+                if winner_uid not in self.players:
+                    logger.error(f"❌ Winner UID {winner_uid} not in competition players: {list(self.players.keys())}")
+                    return
+                winner = self.players[winner_uid]
+                loser_uid = p2_uid if winner_uid == p1_uid else p1_uid
+                if loser_uid not in self.players:
+                    logger.error(f"❌ Loser UID {loser_uid} not in competition players: {list(self.players.keys())}")
+                    return
+                loser = self.players[loser_uid]
+                
+                winner.match_wins += 1
+                winner.game_points += p1_points if winner_uid == p1_uid else p2_points
+                winner.opponent_points += p2_points if winner_uid == p1_uid else p1_points
+                winner.last_match_finish_time = time.time()  # Track for Bye tiebreaker
+                loser.game_points += p2_points if winner_uid == p1_uid else p1_points
+                loser.opponent_points += p1_points if winner_uid == p1_uid else p2_points
+                loser.eliminated = True
+                
+                logger.info(f"🏆 Match complete: {winner.name} defeats {loser.name} ({p1_points}-{p2_points})")
+                
+                # Check if all matches in round are complete
+                pairings = self.rounds[self.current_round - 1]
+                logger.info(f"📊 Round {self.current_round}: {len(self.match_results[self.current_round - 1])}/{len(pairings)} matches complete")
+                if len(self.match_results[self.current_round - 1]) >= len(pairings):
+                    await self._advance_round()
+            except Exception as e:
+                logger.error(f"❌ Error in report_match_complete: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    async def _advance_round(self):
+        """Advance to next round or declare champion."""
+        # Get winners from current round
+        winners = [r.winner_uid for r in self.match_results[self.current_round - 1]]
+        
+        logger.info(f"📊 Round {self.current_round} complete. Winners: {[self.players[uid].name for uid in winners]}")
+        
+        # Clear all rooms from previous round before proceeding
+        room_manager.clear_all_rooms()
+        
+        # Reset bye for new round
+        self.current_bye_uid = None
+        
+        if len(winners) == 1:
+            # We have a champion!
+            self.champion_uid = winners[0]
+            self.state = CompetitionState.COMPLETE
+            champion = self.players[self.champion_uid]
+            logger.info(f"🎉 Competition complete! Champion: {champion.name}")
+            await self._broadcast_competition_complete()
+            # Schedule reset
+            asyncio.create_task(self._schedule_reset())
+            return
+        
+        # Handle odd number of winners - highest scorer gets a Bye
+        bye_player = None
+        if len(winners) % 2 == 1:
+            # Sort winners by: game_points (desc), finish_time (asc), random tiebreaker
+            winner_players = [self.players[uid] for uid in winners]
+            winner_players.sort(
+                key=lambda p: (-p.game_points, p.last_match_finish_time, random.random())
+            )
+            bye_player = winner_players[0]
+            winners.remove(bye_player.uid)
+            self.current_bye_uid = bye_player.uid
+            logger.info(f"🎫 {bye_player.name} receives Bye (highest scorer with {bye_player.game_points} points)")
+        
+        # Create next round pairings from remaining winners
+        self.current_round += 1
+        random.shuffle(winners)
+        pairings = [(winners[i], winners[i + 1]) for i in range(0, len(winners), 2)]
+        self.rounds.append(pairings)
+        self.match_results.append([])
+        
+        logger.info(f"🏆 Round {self.current_round} starting with {len(pairings)} match(es)")
+        
+        # If there was a Bye player, they auto-advance to next round's results
+        if bye_player:
+            import time
+            # Create a "Bye" result - player advances without playing
+            bye_result = MatchResult(bye_player.uid, bye_player.uid, bye_player.uid, 0, 0)
+            self.match_results[self.current_round - 1].append(bye_result)
+            bye_player.last_match_finish_time = time.time()
+            logger.info(f"🎫 {bye_player.name} auto-advances via Bye")
+        
+        await self._broadcast_competition_status()
+        await self._create_round_matches()
+    
+    async def _broadcast_competition_status(self):
+        """Send competition status to all players."""
+        pairings = self.rounds[self.current_round - 1] if self.rounds else []
+        status = {
+            "type": "competition_status",
+            "state": self.state.value,
+            "round": self.current_round,
+            "total_rounds": self._calculate_total_rounds(),
+            "pairings": [
+                {
+                    "arena": i + 1,
+                    "player1": {"uid": uid1, "name": self.players[uid1].name},
+                    "player2": {"uid": uid2, "name": self.players[uid2].name}
+                }
+                for i, (uid1, uid2) in enumerate(pairings)
+            ]
+        }
+        for player in self.players.values():
+            try:
+                await player.websocket.send_json(status)
+            except Exception:
+                pass
+    
+    async def _broadcast_competition_complete(self):
+        """Announce competition winner."""
+        champion = self.players[self.champion_uid]
+        msg = {
+            "type": "competition_complete",
+            "champion": {"uid": champion.uid, "name": champion.name},
+            "reset_in": config.reset_delay
+        }
+        for player in self.players.values():
+            try:
+                await player.websocket.send_json(msg)
+            except Exception:
+                pass
+    
+    async def _schedule_reset(self):
+        """Wait and then reset competition."""
+        self.state = CompetitionState.RESETTING
+        logger.info(f"⏳ Competition resetting in {config.reset_delay} seconds...")
+        await asyncio.sleep(config.reset_delay)
+        await self.start_waiting()
+        logger.info("🔄 Competition reset - ready for new players")
+    
+    def _calculate_total_rounds(self) -> int:
+        """Calculate total rounds needed based on arenas configuration."""
+        import math
+        # With N arenas, we have 2N players, so we need ceil(log2(2N)) rounds
+        # This equals ceil(log2(2 * arenas)) = ceil(1 + log2(arenas))
+        return max(1, math.ceil(math.log2(config.arenas * 2))) if config.arenas > 0 else 1
+    
+    def get_status(self) -> dict:
+        """Get current competition status."""
+        bye_player_name = None
+        if self.current_bye_uid and self.current_bye_uid in self.players:
+            bye_player_name = self.players[self.current_bye_uid].name
+        
+        return {
+            "state": self.state.value,
+            "round": self.current_round if self.current_round > 0 else 1,
+            "total_rounds": self._calculate_total_rounds(),
+            "players": len(self.players),
+            "required": self.required_players(),
+            "champion": self.players[self.champion_uid].name if self.champion_uid else None,
+            "points_to_win": config.points_to_win,
+            "bye_player": bye_player_name
+        }
+    
+    def get_remaining_matches(self) -> int:
+        """Get number of matches remaining in current round."""
+        if not self.rounds or self.current_round == 0:
+            return 0
+        pairings = self.rounds[self.current_round - 1]
+        completed = len(self.match_results[self.current_round - 1]) if self.match_results else 0
+        return len(pairings) - completed
+
+
+# Global competition instance
+competition = Competition()
 
 
 class Snake:
@@ -126,8 +499,8 @@ class Game:
 
     def reset(self):
         self.snakes: dict[int, Snake] = {
-            1: Snake(1, (5, GRID_HEIGHT // 2), "right"),
-            2: Snake(2, (GRID_WIDTH - 6, GRID_HEIGHT // 2), "left"),
+            1: Snake(1, (5, config.grid_height // 2), "right"),
+            2: Snake(2, (config.grid_width - 6, config.grid_height // 2), "left"),
         }
         self.food: Optional[tuple[int, int]] = None
         self.running = False
@@ -140,8 +513,8 @@ class Game:
             occupied.update(snake.body)
         available = [
             (x, y)
-            for x in range(GRID_WIDTH)
-            for y in range(GRID_HEIGHT)
+            for x in range(config.grid_width)
+            for y in range(config.grid_height)
             if (x, y) not in occupied
         ]
         if available:
@@ -168,16 +541,34 @@ class Game:
                 continue
             hx, hy = snake.head()
             # Wall collision
-            if hx < 0 or hx >= GRID_WIDTH or hy < 0 or hy >= GRID_HEIGHT:
+            if hx < 0 or hx >= config.grid_width or hy < 0 or hy >= config.grid_height:
                 snake.alive = False
             # Self collision
             if snake.head() in snake.body[1:]:
                 snake.alive = False
-            # Other snake collision
+            # Other snake collision (body)
             for other in self.snakes.values():
                 if other.player_id != snake.player_id:
                     if snake.head() in other.body:
                         snake.alive = False
+        
+        # Check head-on collision (both snakes' heads in same position)
+        snake_list = list(self.snakes.values())
+        if len(snake_list) == 2:
+            s1, s2 = snake_list[0], snake_list[1]
+            if s1.alive and s2.alive and s1.head() == s2.head():
+                # Head-on collision - both die
+                s1.alive = False
+                s2.alive = False
+            # Also check if they crossed paths (swapped positions)
+            elif s1.alive and s2.alive and len(s1.body) >= 2 and len(s2.body) >= 2:
+                # If s1's head is at s2's previous head position and vice versa
+                s1_prev_head = s1.body[1]  # Previous head position
+                s2_prev_head = s2.body[1]
+                if s1.head() == s2_prev_head and s2.head() == s1_prev_head:
+                    # They crossed paths - both die
+                    s1.alive = False
+                    s2.alive = False
 
         # Check game over
         alive_snakes = [s for s in self.snakes.values() if s.alive]
@@ -191,7 +582,7 @@ class Game:
     def to_dict(self) -> dict:
         return {
             "mode": self.mode,
-            "grid": {"width": GRID_WIDTH, "height": GRID_HEIGHT},
+            "grid": {"width": config.grid_width, "height": config.grid_height},
             "snakes": {pid: s.to_dict() for pid, s in self.snakes.items()},
             "food": self.food,
             "running": self.running,
@@ -214,6 +605,12 @@ class GameRoom:
         self.bot_process: Optional[subprocess.Popen] = None
         self.wins: dict[int, int] = {1: 0, 2: 0}
         self.names: dict[int, str] = {1: "Player 1", 2: "Player 2"}
+        
+        # All rooms are competition rooms
+        self.player_uids: dict[int, str] = {}
+        self.competition_players: dict[int, PlayerInfo] = {}  # player_id -> PlayerInfo
+        self.match_reported: bool = False  # Track if match result already reported
+        self.match_complete: bool = False  # Track if this room's match is finished
 
     def is_empty(self) -> bool:
         return len(self.connections) == 0
@@ -227,7 +624,8 @@ class GameRoom:
         return len(self.connections) >= 2
 
     def is_active(self) -> bool:
-        return self.game.running
+        """Returns True if game is running OR match completed (still in current round)."""
+        return self.game.running or self.match_complete
 
     def get_available_slot(self) -> Optional[int]:
         if 1 not in self.connections:
@@ -237,7 +635,6 @@ class GameRoom:
         return None
 
     async def connect_player(self, player_id: int, websocket: WebSocket):
-        await websocket.accept()
         self.connections[player_id] = websocket
         logger.info(f"✅ [Room {self.room_id}] Player {player_id} connected ({len(self.connections)} player(s))")
         await self.broadcast_state()
@@ -255,18 +652,90 @@ class GameRoom:
             "names": self.names
         })
 
-    def disconnect_player(self, player_id: int):
+    async def connect_competition_player(self, player_id: int, player_info: "PlayerInfo"):
+        """Connect a player in competition mode (websocket already accepted)."""
+        logger.info(f"🔗 [Arena {self.room_id}] Connecting {player_info.name} as Player {player_id}, ws={player_info.websocket is not None}")
+        self.connections[player_id] = player_info.websocket
+        self.competition_players[player_id] = player_info
+        self.names[player_id] = player_info.name
+        self.ready.add(player_id)
+        
+        # Notify player of their assignment
+        try:
+            if player_info.websocket:
+                await player_info.websocket.send_json({
+                    "type": "match_assigned",
+                    "room_id": self.room_id,
+                    "player_id": player_id,
+                    "opponent": self.names[3 - player_id] if (3 - player_id) in self.names else "Opponent",
+                    "points_to_win": config.points_to_win
+                })
+                logger.info(f"📤 [Arena {self.room_id}] Sent match_assigned to {player_info.name}")
+            else:
+                logger.error(f"❌ [Arena {self.room_id}] {player_info.name} has no websocket!")
+        except Exception as e:
+            logger.error(f"❌ [Arena {self.room_id}] Failed to notify {player_info.name}: {e}")
+        
+        logger.info(f"✅ [Arena {self.room_id}] {player_info.name} assigned as Player {player_id}, ready={len(self.ready)}, game.running={self.game.running}")
+        
+        # Start game when both players are connected
+        if len(self.ready) >= 2 and not self.game.running:
+            logger.info(f"🎮 [Arena {self.room_id}] Both players ready, starting game...")
+            await self.start_game()
+
+    async def disconnect_player(self, player_id: int):
+        was_game_running = self.game.running
+        opponent_id = 3 - player_id  # 1 -> 2, 2 -> 1
+        opponent_connected = opponent_id in self.connections
+        
         self.connections.pop(player_id, None)
         self.ready.discard(player_id)
+        
         if self.game_task:
             self.game_task.cancel()
             self.game_task = None
             logger.info(f"⏹️ [Room {self.room_id}] Game stopped (player disconnected)")
+        
+        # If game was running, opponent wins by forfeit (unless match already reported)
+        if was_game_running and opponent_connected and not self.match_reported:
+            self.match_reported = True
+            self.match_complete = True
+            logger.info(f"🏆 [Room {self.room_id}] {self.names.get(opponent_id, 'Opponent')} wins by forfeit!")
+            # Award match to opponent
+            self.wins[opponent_id] = config.points_to_win
+            
+            # Broadcast forfeit/match complete
+            await self.broadcast({
+                "type": "match_complete",
+                "winner": {"player_id": opponent_id, "name": self.names.get(opponent_id, "Opponent")},
+                "final_score": self.wins,
+                "room_id": self.room_id,
+                "points_to_win": config.points_to_win,
+                "forfeit": True
+            })
+            
+            # Report match completion to competition
+            if self.room_manager:
+                opponent_uid = self.player_uids.get(opponent_id)
+                if opponent_uid:
+                    p1_uid = self.player_uids.get(1)
+                    p2_uid = self.player_uids.get(2)
+                    if p1_uid and p2_uid:
+                        await competition.report_match_complete(
+                            self, opponent_uid,
+                            p1_uid, p2_uid,
+                            self.wins.get(1, 0), self.wins.get(2, 0)
+                        )
+        
         self._stop_bot()
-        self.game = Game()
-        self.pending_mode = "two_player"
-        self.wins = {1: 0, 2: 0}
-        self.names = {1: "Player 1", 2: "Player 2"}
+        
+        # Only reset room state if match is NOT complete (preserve completed match data)
+        if not self.match_complete:
+            self.game = Game()
+            self.pending_mode = "two_player"
+            self.wins = {1: 0, 2: 0}
+            self.names = {1: "Player 1", 2: "Player 2"}
+        
         logger.info(f"❌ [Room {self.room_id}] Player {player_id} disconnected ({len(self.connections)} player(s))")
 
     def _stop_bot(self):
@@ -370,14 +839,89 @@ class GameRoom:
                         logger.info(f"🏆 [Room {self.room_id}] Game over! Winner: {self.names.get(self.game.winner, 'Unknown')}")
                     else:
                         logger.info(f"🏁 [Room {self.room_id}] Game over! Draw.")
-                    await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins, "names": self.names, "room_id": self.room_id})
-                    self.ready.clear()
-                    # Notify all observers about updated room list (game ended)
-                    if self.room_manager:
-                        await self.room_manager.broadcast_room_list_to_all_observers()
-                await asyncio.sleep(TICK_RATE)
+                    
+                    # Check for match completion (first to points_to_win)
+                    match_winner = self._check_match_complete()
+                    
+                    await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins, "names": self.names, "room_id": self.room_id, "points_to_win": config.points_to_win})
+                    
+                    if match_winner:
+                        try:
+                            await self._handle_match_complete(match_winner)
+                        except Exception as e:
+                            logger.error(f"❌ [Arena {self.room_id}] Error handling match complete: {e}")
+                            import traceback
+                            traceback.print_exc()
+                        # Notify all observers about updated room list
+                        if self.room_manager:
+                            await self.room_manager.broadcast_room_list_to_all_observers()
+                        return  # Exit game loop - match is done
+                    else:
+                        # Continue match - start next game after brief delay
+                        await asyncio.sleep(2)
+                        await self._start_next_game()
+                        
+                await asyncio.sleep(config.tick_rate)
         except asyncio.CancelledError:
             pass
+    
+    def _check_match_complete(self) -> Optional[int]:
+        """Check if a player has won the match. Returns winner player_id or None."""
+        for player_id, wins in self.wins.items():
+            if wins >= config.points_to_win:
+                return player_id
+        return None
+    
+    async def _handle_match_complete(self, winner_player_id: int):
+        """Handle match completion in competition mode."""
+        if self.match_reported:
+            logger.warning(f"⚠️ [Arena {self.room_id}] Match already reported, skipping duplicate")
+            return
+        self.match_reported = True
+        self.match_complete = True  # Mark room as finished
+        
+        winner_uid = self.player_uids[winner_player_id]
+        loser_player_id = 3 - winner_player_id
+        loser_uid = self.player_uids[loser_player_id]
+        
+        # Get remaining matches before this one completes
+        remaining_matches = competition.get_remaining_matches()
+        
+        # Broadcast match result
+        await self.broadcast({
+            "type": "match_complete",
+            "winner": {"player_id": winner_player_id, "name": self.names[winner_player_id]},
+            "final_score": self.wins,
+            "room_id": self.room_id,
+            "remaining_matches": remaining_matches - 1,  # Subtract this match
+            "current_round": competition.current_round,
+            "total_rounds": competition._calculate_total_rounds()
+        })
+        
+        logger.info(f"🏆 [Arena {self.room_id}] Match complete: {self.names[winner_player_id]} wins {self.wins[winner_player_id]}-{self.wins[loser_player_id]}")
+        
+        # Report to competition
+        await competition.report_match_complete(
+            self, winner_uid, 
+            self.player_uids[1], self.player_uids[2],
+            self.wins[1], self.wins[2]
+        )
+    
+    async def _start_next_game(self):
+        """Start the next game in the match."""
+        self.game = Game(mode="two_player")
+        self.game.running = True
+        self.ready = {1, 2}  # Both players stay ready
+        
+        await self.broadcast({
+            "type": "start", 
+            "mode": "competition",
+            "room_id": self.room_id,
+            "wins": self.wins,
+            "points_to_win": config.points_to_win
+        })
+        
+        logger.info(f"🎮 [Arena {self.room_id}] Next game started (Score: {self.wins[1]}-{self.wins[2]})")
 
     async def broadcast_state(self):
         await self.broadcast({"type": "state", "game": self.game.to_dict(), "wins": self.wins, "names": self.names, "room_id": self.room_id})
@@ -386,11 +930,12 @@ class GameRoom:
         disconnected_players = []
         disconnected_observers = []
         
-        # Send to players
-        for pid, ws in self.connections.items():
+        # Send to players (copy dict to avoid modification during iteration)
+        for pid, ws in list(self.connections.items()):
             try:
                 await ws.send_json(message)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"⚠️ [Room {self.room_id}] Failed to send to player {pid}: {e}")
                 disconnected_players.append(pid)
         
         # Send to observers
@@ -400,8 +945,11 @@ class GameRoom:
             except Exception:
                 disconnected_observers.append(ws)
         
+        # Only disconnect players if game is not in competition mode startup
+        # (give competition players a chance to reconnect)
         for pid in disconnected_players:
-            self.disconnect_player(pid)
+            if not self.match_complete:  # Don't disconnect during active match
+                await self.disconnect_player(pid)
         for ws in disconnected_observers:
             self.disconnect_observer(ws)
 
@@ -464,7 +1012,8 @@ class RoomManager:
             {
                 "room_id": r.room_id,
                 "names": r.names,
-                "wins": r.wins
+                "wins": r.wins,
+                "match_complete": r.match_complete
             }
             for r in rooms
         ]
@@ -488,7 +1037,8 @@ class RoomManager:
                 {
                     "room_id": r.room_id,
                     "names": r.names,
-                    "wins": r.wins
+                    "wins": r.wins,
+                    "match_complete": r.match_complete
                 }
                 for r in rooms
             ]
@@ -535,6 +1085,14 @@ class RoomManager:
                 return room
         return None
     
+    def create_competition_room(self, arena_id: int, p1_uid: str, p2_uid: str) -> GameRoom:
+        """Create a room for a competition match."""
+        room = GameRoom(arena_id, self)
+        room.player_uids = {1: p1_uid, 2: p2_uid}
+        self.rooms[arena_id] = room
+        logger.info(f"🏟️ Arena {arena_id} created for competition match")
+        return room
+    
     def spawn_bot_vs_bot(self, difficulty1: int = 5, difficulty2: int = 5):
         """Spawn two bots to play against each other for observers to watch."""
         codespace_name = os.environ.get("CODESPACE_NAME")
@@ -574,20 +1132,45 @@ class RoomManager:
             del self.rooms[rid]
             logger.info(f"🧹 Room {rid} cleaned up")
     
+    def clear_all_rooms(self):
+        """Clear all rooms for next round. Called between competition rounds."""
+        for room in self.rooms.values():
+            room._stop_bot()
+            if room.game_task:
+                room.game_task.cancel()
+        self.rooms.clear()
+        logger.info(f"🧹 All rooms cleared for next round")
+    
     def get_status(self) -> dict:
         """Get status of all rooms."""
+        # Count total players across all rooms
+        total_players = sum(len(room.connections) for room in self.rooms.values())
+        max_players = config.arenas * 2
+        
+        # Only show open slots if competition is waiting for players
+        competition_in_progress = competition.state != CompetitionState.WAITING_FOR_PLAYERS
+        open_slots = 0 if competition_in_progress else max_players - total_players
+        
         return {
+            "arenas": config.arenas,
+            "max_players": max_players,
+            "total_players": total_players,
+            "open_slots": open_slots,
+            "competition_state": competition.state.value,
             "total_rooms": len(self.rooms),
+            "speed": config.tick_rate,
             "rooms": [
                 {
                     "room_id": room.room_id,
                     "players": list(room.connections.keys()),
                     "observers": len(room.observers),
                     "game_running": room.game.running,
-                    "waiting_for_player": room.is_waiting_for_player()
+                    "waiting_for_player": room.is_waiting_for_player(),
+                    "match_complete": room.match_complete,
+                    "names": room.names,
+                    "wins": room.wins
                 }
                 for room in self.rooms.values()
-                if not room.is_empty()
             ]
         }
 
@@ -597,13 +1180,39 @@ room_manager = RoomManager()
 
 @app.websocket("/ws/join")
 async def join_game(websocket: WebSocket):
-    """Auto-matchmaking: join a waiting game or create a new one."""
-    # Use thread-safe matchmaking
+    """Auto-matchmaking: join a competition slot."""
+    await websocket.accept()
+    
+    # Check if competition is accepting players
+    if competition.state != CompetitionState.WAITING_FOR_PLAYERS:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Competition in progress - cannot join"
+        })
+        await websocket.close(code=4003, reason="Competition in progress")
+        return
+    
+    # Check if there are open slots
+    total_players = sum(len(room.connections) for room in room_manager.rooms.values())
+    max_players = config.arenas * 2
+    if total_players >= max_players:
+        await websocket.send_json({
+            "type": "error", 
+            "message": "All slots filled"
+        })
+        await websocket.close(code=4002, reason="Server full")
+        return
+    
+    # Find or create a room for this player
     room, player_id = await room_manager.find_or_create_room()
     
     if not room:
         await websocket.close(code=4002, reason="Server full - no room available")
         return
+    
+    # Generate a UID for this player and register with competition
+    uid = f"player_{room.room_id}_{player_id}_{id(websocket)}"
+    room.player_uids[player_id] = uid
     
     await room.connect_player(player_id, websocket)
     
@@ -614,13 +1223,59 @@ async def join_game(websocket: WebSocket):
         "player_id": player_id
     })
     
+    # Check if competition should start (all slots filled)
+    total_players = sum(len(r.connections) for r in room_manager.rooms.values())
+    if total_players >= max_players and competition.state == CompetitionState.WAITING_FOR_PLAYERS:
+        await _start_competition_from_rooms()
+    
     try:
         while True:
             data = await websocket.receive_json()
-            await room.handle_message(player_id, data)
+            # Get current room from player's competition info (may change between rounds)
+            player_info = competition.players.get(uid)
+            current_room = player_info.current_room if player_info else room
+            if current_room:
+                # Use the player's current player_id (may change between rounds)
+                current_player_id = player_info.current_player_id if player_info else player_id
+                await current_room.handle_message(current_player_id, data)
     except WebSocketDisconnect:
-        room.disconnect_player(player_id)
+        # Get current room for disconnect handling
+        player_info = competition.players.get(uid)
+        current_room = player_info.current_room if player_info else room
+        if current_room:
+            current_player_id = player_info.current_player_id if player_info else player_id
+            await current_room.disconnect_player(current_player_id)
         room_manager.cleanup_empty_rooms()
+
+
+async def _start_competition_from_rooms():
+    """Start the competition using players already in rooms."""
+    competition.state = CompetitionState.IN_PROGRESS
+    competition.current_round = 1
+    
+    # Build pairings from rooms
+    pairings = []
+    for room in room_manager.rooms.values():
+        if len(room.connections) == 2:
+            p1_uid = room.player_uids.get(1)
+            p2_uid = room.player_uids.get(2)
+            if p1_uid and p2_uid:
+                pairings.append((p1_uid, p2_uid))
+                # Register players with competition - include their websockets
+                p1_ws = room.connections.get(1)
+                p2_ws = room.connections.get(2)
+                competition.players[p1_uid] = PlayerInfo(p1_uid, room.names.get(1, "Player 1"), p1_ws)
+                competition.players[p2_uid] = PlayerInfo(p2_uid, room.names.get(2, "Player 2"), p2_ws)
+                # Track which room each player is in
+                competition.players[p1_uid].current_room = room
+                competition.players[p1_uid].current_player_id = 1
+                competition.players[p2_uid].current_room = room
+                competition.players[p2_uid].current_player_id = 2
+    
+    competition.rounds.append(pairings)
+    competition.match_results.append([])
+    
+    logger.info(f"🏆 Competition started! Round 1 with {len(pairings)} matches")
 
 
 @app.websocket("/ws/observe")
@@ -628,37 +1283,36 @@ async def observe_game(websocket: WebSocket):
     """Observe an active game. Supports switching rooms via messages."""
     await websocket.accept()
     
+    # Find any room with players (active or completed)
     room = room_manager.find_active_room()
+    if not room:
+        # Try to find any non-empty room (completed games)
+        for r in room_manager.rooms.values():
+            if not r.is_empty():
+                room = r
+                break
+    
     current_room = room
-    in_lobby = False
     
     if not room:
-        # No active games - spawn two bots to play for the observer
+        # No games at all - inform observer and close
         await websocket.send_json({
             "type": "observer_lobby",
-            "message": "No active games. Launching bot-vs-bot match..."
+            "message": "No active games to observe."
         })
-        logger.info(f"👁️ Observer joined - spawning bot-vs-bot match")
-        
-        # Spawn bots with random difficulties for variety
-        import random
-        d1 = random.randint(3, 8)
-        d2 = random.randint(3, 8)
-        room_manager.spawn_bot_vs_bot(d1, d2)
-        
-        # Put observer in lobby - they'll be moved to the room once bots connect
-        room_manager.lobby_observers.append(websocket)
-        in_lobby = True
-    else:
-        room.observers.append(websocket)
-        await websocket.send_json({
-            "type": "observer_joined",
-            "room_id": room.room_id,
-            "game": room.game.to_dict(),
-            "wins": room.wins,
-            "names": room.names
-        })
-        logger.info(f"👁️ [Room {room.room_id}] Observer connected ({len(room.observers)} observer(s))")
+        logger.info(f"👁️ Observer joined but no games available")
+        await websocket.close(code=4003, reason="No games to observe")
+        return
+    
+    room.observers.append(websocket)
+    await websocket.send_json({
+        "type": "observer_joined",
+        "room_id": room.room_id,
+        "game": room.game.to_dict(),
+        "wins": room.wins,
+        "names": room.names
+    })
+    logger.info(f"👁️ [Room {room.room_id}] Observer connected ({len(room.observers)} observer(s))")
     
     try:
         while True:
@@ -672,13 +1326,12 @@ async def observe_game(websocket: WebSocket):
                     target_room_id = data.get("room_id")
                     target_room = room_manager.get_room_by_id(target_room_id)
                     
-                    if target_room and target_room.is_active():
+                    if target_room and not target_room.is_empty():
                         # Disconnect from current room
                         current_room.disconnect_observer(websocket)
                         # Connect to new room
                         current_room = target_room
                         current_room.observers.append(websocket)
-                        in_lobby = False
                         await websocket.send_json({
                             "type": "observer_joined",
                             "room_id": current_room.room_id,
@@ -694,8 +1347,8 @@ async def observe_game(websocket: WebSocket):
                         })
                 
                 elif action == "get_rooms":
-                    # Send list of active rooms
-                    rooms = room_manager.get_active_rooms()
+                    # Send list of all rooms (active or with players)
+                    rooms = [r for r in room_manager.rooms.values() if not r.is_empty()]
                     await websocket.send_json({
                         "type": "room_list",
                         "rooms": [
@@ -711,18 +1364,71 @@ async def observe_game(websocket: WebSocket):
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:
-        if in_lobby:
-            if websocket in room_manager.lobby_observers:
-                room_manager.lobby_observers.remove(websocket)
-            logger.info(f"👁️ Observer left lobby")
-        elif current_room:
+        if current_room:
             current_room.disconnect_observer(websocket)
+
+
+@app.websocket("/ws/compete")
+async def compete(websocket: WebSocket):
+    """Join a competition. Waits in lobby until enough players, then starts tournament."""
+    await websocket.accept()
+    
+    # Get player name from first message
+    try:
+        data = await websocket.receive_json()
+        name = data.get("name", "Anonymous")
+    except Exception:
+        await websocket.close(code=4001, reason="Expected name message")
+        return
+    
+    # Register for competition
+    player = await competition.register_player(name, websocket)
+    
+    if not player:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Competition not accepting players (in progress or full)"
+        })
+        await websocket.close(code=4003, reason="Competition not available")
+        return
+    
+    # Send confirmation
+    await websocket.send_json({
+        "type": "registered",
+        "uid": player.uid,
+        "name": player.name,
+        "competition_status": competition.get_status()
+    })
+    
+    try:
+        while True:
+            data = await websocket.receive_json()
+            action = data.get("action")
+            
+            # Handle move commands during games
+            if action == "move" and player.current_room:
+                direction = data.get("direction")
+                if direction in ("up", "down", "left", "right"):
+                    player_id = player.current_player_id
+                    if player_id and player_id in player.current_room.game.snakes:
+                        player.current_room.game.snakes[player_id].queue_direction(direction)
+            
+            # Handle ready for next game
+            elif action == "ready" and player.current_room:
+                player.current_room.ready.add(player.current_player_id)
+                if len(player.current_room.ready) >= 2 and not player.current_room.game.running:
+                    await player.current_room.start_game()
+                    
+    except WebSocketDisconnect:
+        await competition.unregister_player(player.uid)
 
 
 # Legacy endpoint for backward compatibility
 @app.websocket("/ws/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, player_id: int):
     """Legacy endpoint - redirects to join."""
+    await websocket.accept()
+    
     if player_id not in (1, 2):
         await websocket.close(code=4000, reason="Invalid player_id. Use /ws/join instead.")
         return
@@ -753,7 +1459,7 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int):
             data = await websocket.receive_json()
             await room.handle_message(player_id, data)
     except WebSocketDisconnect:
-        room.disconnect_player(player_id)
+        await room.disconnect_player(player_id)
         room_manager.cleanup_empty_rooms()
 
 
@@ -781,3 +1487,174 @@ async def active_rooms():
             for room in rooms
         ]
     }
+
+
+@app.get("/competition")
+async def competition_status():
+    """Get current competition status."""
+    return competition.get_status()
+
+
+@app.post("/add_bot")
+async def add_bot():
+    """Add a CopperBot to the first available room."""
+    # Find a room waiting for a player
+    room = room_manager.find_waiting_room()
+    if not room:
+        # No waiting room - check if we can create one
+        total_players = sum(len(r.connections) for r in room_manager.rooms.values())
+        if total_players >= config.arenas * 2:
+            return {"success": False, "message": "All player slots filled"}
+        # Create a new room for the bot
+        room = room_manager.create_room()
+        if not room:
+            return {"success": False, "message": "Cannot create room"}
+    
+    # Spawn a bot with random difficulty
+    difficulty = random.randint(1, 10)
+    room._spawn_bot(difficulty)
+    
+    return {"success": True, "message": f"CopperBot L{difficulty} added to Room {room.room_id}"}
+
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="CopperHead Server - 2-player Snake game with competition mode",
+        usage="python main.py [options] [spec-file]"
+    )
+    parser.add_argument(
+        "spec_file", nargs="?", default=None,
+        help="Optional JSON config file. Defaults to server-settings.json if it exists."
+    )
+    parser.add_argument(
+        "--arenas", type=int, default=None,
+        help="Number of matches in round 1 (players needed = 2 * arenas). Default: 1"
+    )
+    parser.add_argument(
+        "--points-to-win", type=int, default=None,
+        help="Points required to win a match. Default: 5"
+    )
+    parser.add_argument(
+        "--reset-delay", type=int, default=None,
+        help="Seconds to wait before resetting after competition ends. Default: 10"
+    )
+    parser.add_argument(
+        "--grid-size", type=str, default=None,
+        help="Grid size as WIDTHxHEIGHT. Default: 30x20"
+    )
+    parser.add_argument(
+        "--speed", type=float, default=None,
+        help="Tick rate in seconds per frame. Default: 0.15"
+    )
+    parser.add_argument(
+        "--bots", type=int, default=None,
+        help="Number of AI bots to launch at server start. Default: 0"
+    )
+    parser.add_argument(
+        "--host", type=str, default="0.0.0.0",
+        help="Host to bind to. Default: 0.0.0.0"
+    )
+    parser.add_argument(
+        "--port", type=int, default=8000,
+        help="Port to bind to. Default: 8000"
+    )
+    return parser.parse_args()
+
+
+def load_spec_file(spec_file: str) -> dict:
+    """Load configuration from a JSON spec file."""
+    try:
+        with open(spec_file, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in {spec_file}: {e}")
+        return {}
+
+
+def apply_config(args):
+    """Apply parsed arguments to server config."""
+    # Load spec file (explicit arg, or default server-settings.json)
+    spec = {}
+    if args.spec_file:
+        spec = load_spec_file(args.spec_file)
+        if spec:
+            logger.info(f"📄 Loaded config from {args.spec_file}")
+    else:
+        default_spec = os.path.join(os.path.dirname(os.path.abspath(__file__)), "server-settings.json")
+        if os.path.exists(default_spec):
+            spec = load_spec_file(default_spec)
+            if spec:
+                logger.info(f"📄 Loaded config from server-settings.json")
+    
+    # Apply settings: CLI args override spec file, spec file overrides defaults
+    config.arenas = args.arenas if args.arenas is not None else spec.get("arenas", 1)
+    config.points_to_win = args.points_to_win if args.points_to_win is not None else spec.get("points_to_win", 5)
+    config.reset_delay = args.reset_delay if args.reset_delay is not None else spec.get("reset_delay", 10)
+    config.tick_rate = args.speed if args.speed is not None else spec.get("speed", 0.15)
+    config.bots = args.bots if args.bots is not None else spec.get("bots", 0)
+    
+    # Parse grid size
+    grid_size = args.grid_size if args.grid_size is not None else spec.get("grid_size", "30x20")
+    try:
+        width, height = grid_size.lower().split("x")
+        config.grid_width = int(width)
+        config.grid_height = int(height)
+    except ValueError:
+        logger.error(f"Invalid grid size '{grid_size}'. Using default 30x20.")
+        config.grid_width = 30
+        config.grid_height = 20
+
+
+def spawn_initial_bots(count: int):
+    """Spawn initial bots at server start."""
+    if count <= 0:
+        return
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(script_dir, "copperbot.py")
+    
+    codespace_name = os.environ.get("CODESPACE_NAME")
+    github_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    
+    if codespace_name:
+        server_url = f"wss://{codespace_name}-8000.{github_domain}/ws/"
+    else:
+        server_url = "ws://localhost:8000/ws/"
+    
+    for i in range(count):
+        difficulty = random.randint(1, 10)
+        try:
+            subprocess.Popen(
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty), "--quiet"],
+                cwd=script_dir
+            )
+            logger.info(f"🤖 Spawned CopperBot L{difficulty} ({i+1}/{count})")
+        except Exception as e:
+            logger.error(f"❌ Failed to spawn bot: {e}")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    args = parse_args()
+    apply_config(args)
+    
+    logger.info(f"🎮 Starting CopperHead Server")
+    logger.info(f"   Arenas: {config.arenas} (need {config.arenas * 2} players)")
+    logger.info(f"   Points to win: {config.points_to_win}")
+    logger.info(f"   Grid: {config.grid_width}x{config.grid_height}")
+    logger.info(f"   Speed: {config.tick_rate}s/tick")
+    logger.info(f"   Bots: {config.bots}")
+    
+    # Spawn initial bots after a short delay (server needs to start first)
+    if config.bots > 0:
+        import threading
+        def delayed_bot_spawn():
+            import time
+            time.sleep(2)
+            spawn_initial_bots(config.bots)
+        threading.Thread(target=delayed_bot_spawn, daemon=True).start()
+    
+    uvicorn.run(app, host=args.host, port=args.port)

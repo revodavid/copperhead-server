@@ -1,16 +1,63 @@
 # CopperHead Server
 
-A server for a 2-player Snake game. CopperHead manages game state and scoring, communicating with player clients via WebSocket API.
+A server for a 2-player Snake game. The CopperHead server manages game state and multi-round knockout competitions, communicating with player clients via WebSocket API.
 
-**Client:** [copperhead-client](https://github.com/revodavid/copperhead-client) | [Play Online](https://revodavid.github.io/copperhead-client/)
+This repo only provides the server for hosting and managing the game. 
+[Play Online](https://revodavid.github.io/copperhead-client/) with the  [copperhead-client](https://github.com/revodavid/copperhead-client). The server also support AI-controlled opponents and observer mode for spectating games.
 
-## Features
+## Game Rules
 
-- Real-time 2-player Snake game
-- Up to 10 simultaneous game rooms
-- Built-in AI opponent (ServerBot)
-- Observer mode for spectating games
-- WebSocket-based communication
+CopperHead is a 2-player game played on a rectangular grid. Each player controls a snake that moves around the grid, trying to eat food items to grow longer while avoiding collisions with walls, themselves, and the other player's snake. 
+
+The player who lasts the longest without colliding wins the game and is awareded a point. If both players collide simultaneously, the game ends in a draw and no points are awarded.
+
+### Buffs and Food Bonuses
+
+Each player may possess up to one buff at a time. Food items may affect your snake's length, award or remove a buff, or have other effects as follows:
+
+* Apple: Increases your snake length by 1.
+
+Food items may appear and disappear from the playfield according to server settings.
+
+### Winning a Match
+
+A Match of CopperHead consists of multiple games. The first player to reach a predefined number of points wins the match.
+
+## CopperHead Championship
+
+The CopperHead server is designed to host a knockout tournament among human and/or AI players to determine the Championship winner.
+
+See [Competition Logic](competion-logic.md) for full details on how competitions are structured and run.
+
+## Server Setup
+
+Usage: python main.py [options] [spec-file]
+
+* `spec-file`: Optional path to a JSON configuration file. If no arguments are provided, `server-settings.json` is used if it exists.
+
+### Command-Line Options
+
+Instead of using a spec file, you may provide command-line options. These options override any settings in the spec file.
+
+* `--arenas`: Number of matches in round 1 of the competition. The default is 1, which is best for a single player vs one human or AI opponent. The competition will not begin until twice the number of players have joined.
+
+* `--points-to-win`: Number of points required to win a match. Default is 5.
+
+* `--reset-delay`: Once a competition is complete, the server will wait this many seconds before resetting. At reset the competition restarts: active bots are terminated, new bots are launched according to the `--bots` setting, and the server begins accepting new players. Default is 30 seconds.
+
+* `--grid-size`: Size of the game grid as WIDTHxHEIGHT. Default is 30x20.
+
+* `--speed`: The tick rate of the game in seconds per frame. The default (0.15 seconds) is suitable for human players. Lower values increase game speed and difficulty.
+
+* `--bots`: Number of AI opponents to launch at server start. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels.
+
+## Basic Bot Opponent
+
+This repo provides a simple AI opponent (CopperBot - `copperbot.py`) that will be launched as necessary to provide AI opponents. CopperBot's logic is basic and can be easily defeated: you are encouraged to develop your own AI opponents with improved strategies. See `Bulding Your Own Bot.md` for details.
+
+## Observer Mode
+
+Clients may join the server as observers to spectate active games. Observers do not participate in the game and cannot influence the outcome, but they can view the game state in real-time.
 
 ## Requirements
 
@@ -58,7 +105,7 @@ pip install -r requirements.txt
 ## Running the Server Locally
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python main.py
 ```
 
 For local servers, use: `ws://localhost:8000/ws`

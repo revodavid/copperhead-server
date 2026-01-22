@@ -1,0 +1,8 @@
+{
+    "arenas": 2,
+    "points_to_win": 2,
+    "reset_delay": 10,
+    "grid_size": "22x20",
+    "speed": 0.15,
+    "bots": 0
+}
