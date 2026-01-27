@@ -11,10 +11,6 @@ import argparse
 import websockets
 from collections import deque
 
-# Game constants (must match server)
-GRID_WIDTH = 30
-GRID_HEIGHT = 20
-
 
 class RobotPlayer:
     """Autonomous player that connects to CopperHead server and plays using AI."""
@@ -29,6 +25,9 @@ class RobotPlayer:
         self.wins = 0
         self.games_played = 0
         self.room_id = None
+        # Grid dimensions - will be set from server game state
+        self.grid_width = 30   # Default, updated when game state received
+        self.grid_height = 20  # Default, updated when game state received
     
     def log(self, msg: str):
         if not self.quiet:
@@ -133,6 +132,11 @@ class RobotPlayer:
         
         elif msg_type == "state":
             self.game_state = data.get("game")
+            # Update grid dimensions from server
+            grid = self.game_state.get("grid", {})
+            if grid:
+                self.grid_width = grid.get("width", self.grid_width)
+                self.grid_height = grid.get("height", self.grid_height)
             if self.game_state and self.game_state.get("running"):
                 direction = self.calculate_move()
                 if direction:
@@ -236,9 +240,13 @@ class RobotPlayer:
         # Can't reverse
         opposites = {"up": "down", "down": "up", "left": "right", "right": "left"}
         
+        # Use instance grid dimensions
+        grid_width = self.grid_width
+        grid_height = self.grid_height
+        
         def is_safe(x, y):
             """Check if position is safe (not wall, not snake)."""
-            if x < 0 or x >= GRID_WIDTH or y < 0 or y >= GRID_HEIGHT:
+            if x < 0 or x >= grid_width or y < 0 or y >= grid_height:
                 return False
             if (x, y) in dangerous:
                 return False
@@ -289,11 +297,11 @@ class RobotPlayer:
             # Distance to food (closer is better)
             if food:
                 food_dist = abs(new_x - food[0]) + abs(new_y - food[1])
-                score += (GRID_WIDTH + GRID_HEIGHT - food_dist) * 10
+                score += (grid_width + grid_height - food_dist) * 10
             
             # Prefer staying away from edges
-            edge_dist = min(new_x, GRID_WIDTH - 1 - new_x, 
-                           new_y, GRID_HEIGHT - 1 - new_y)
+            edge_dist = min(new_x, grid_width - 1 - new_x, 
+                           new_y, grid_height - 1 - new_y)
             score += edge_dist * 5
             
             # Random factor based on difficulty (lower = more random)
