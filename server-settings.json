@@ -9,10 +9,10 @@
     "max_fruits": 5,
     "fruit_interval": 8,
     "fruits": {
-        "apple": {"propensity": 1, "lifetime": 20},
+        "apple": {"propensity": 2, "lifetime": 0},
         "orange": {"propensity": 0, "lifetime": 0},
         "lemon": {"propensity": 0, "lifetime": 0},
-        "grapes": {"propensity": 0, "lifetime": 0},
+        "grapes": {"propensity": 1, "lifetime": 20},
         "strawberry": {"propensity": 0, "lifetime": 0},
         "banana": {"propensity": 0, "lifetime": 0},
         "peach": {"propensity": 0, "lifetime": 0},

@@ -21,7 +21,7 @@ During gameplay, various fruit items may appear on the game grid. These fruits p
 - 🍎 Apple: increases player snake length by one
 - 🍊 Orange: no effect
 - 🍋 Lemon: no effect
-- 🍇 Grapes: no effect
+- 🍇 Grapes: increases player snake length by one. decreases opponent's snake length by one if greater than one.
 - 🍓 Strawberry: no effect
 - 🍌 Banana: no effect
 - 🍑 Peach: no effect
@@ -43,7 +43,6 @@ Each player snake posseses exactly one buff at a time. Buffs provide temporary a
 - 🔄 Inversion: the snake's controls are inverted
 - 🍀 Lucky: appearing fruit will appear within 5 tiles of the player's head with 50% probability.
 - 🐢 Slow: the opponent's snake moves at half speed.
-- ✂️ Scissors: the player's snake length decreases by half, and the buff is removed
 - 👻 Ghost: instead of colliding with walls, the snake passes through walls and appears on the opposite side. 
 - ? Question Mark: a random buff is applied when the player collects this fruit.
 

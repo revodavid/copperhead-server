@@ -648,9 +648,21 @@ class Game:
                 # Calculate where the snake will actually move to (accounting for input queue)
                 next_head = snake.get_next_head()
                 
-                # Check if next position has food - eating makes snake grow
+                # Check if next position has food
                 food = self.get_food_at(next_head)
-                grow = food is not None and food["type"] == "apple"  # Only apples grow the snake for now
+                grow = False
+                
+                if food:
+                    if food["type"] == "apple":
+                        # Apple: grow by one
+                        grow = True
+                    elif food["type"] == "grapes":
+                        # Grapes: grow by one, shrink opponent by one
+                        grow = True
+                        for other in self.snakes.values():
+                            if other.player_id != snake.player_id and len(other.body) > 1:
+                                other.body.pop()  # Remove tail segment
+                
                 snake.move(grow)
                 if food:
                     self.remove_food_at(next_head)
