@@ -4,8 +4,6 @@ Version: 3.3.1
 
 A server for a 2-player Snake game. The CopperHead server manages game state and multi-round knockout competitions, communicating with human and robot clients via WebSocket API.
 
-NOTE: This repository provides only the server for hosting and managing the game. Find the client for playing the game in the [CopperHead Client](../copperhead-client/) repository. 
-
 ## Quick Start: Play CopperHead
 
 1. **Launch the CopperHead server in CodeSpaces**: Click the green **Code** button on this repository page, select the **Codespaces** tab, and click **Create codespace on main**. The server will start after a few minutes.
@@ -14,25 +12,19 @@ NOTE: This repository provides only the server for hosting and managing the game
 
     ![Your application running on port 8000 is available](img/make-port-public.png)
 
-2. **Copy the WebSocket URL** displayed in the Codespaces window to the clipboard.
+2. **Click the Play Now link** displayed in README.md (visible in the Explorer panel after startup). This opens the client with your server already connected.
 
-    - This "Connect Now" information is added to README.md after the CodeSpaces session has completed its launch.
+    ![Play Now link](img/connect-now.png "Play Now")
 
-    ![Connect Now information](img/connect-now.png "Connect Now")
-
-3. **Open the CopperHead client** in your web browser: [CopperHead Client](https://revodavid.github.io/copperhead-client/)
-
-4. **Paste the WebSocket URL** from step 2 into the client to connect.
-
-5. **Play** vs a friend or a bot
- - Click **Join** and invite a friend to do the same on this server
- - Or, click **Play Bot** to join and add a bot opponent automatically
+3. **Play** vs a friend or a bot
+    - Click **Join** and invite a friend to do the same on this server
+    - Or, click **Play Bot** to join and add a bot opponent automatically
 
 ## About CopperHead Server
 
 CopperHead Server is responsible for managing game state, player matchmaking, and competition logic for a multi-round CopperHead tournament among human and/or AI players.
 
-CopperHead Server does provide any user interface or graphics for playing the game. Human players use [CopperHead Client](../copperhead-client/) to play or observe games. Bots (automated players) connect via the WebSocket API.
+CopperHead Server does not provide any user interface or graphics for playing the game. Human players use [CopperHead Client](../copperhead-client/) to play or observe games. Bots (automated players) connect via the WebSocket API.
 
 This server can launch basic bot opponents, but better strategies are possible. To **build your own bot opponent**, see [Building-Your-Own-Bot.md](Building-Your-Own-Bot.md) for instructions.
 
