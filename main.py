@@ -119,6 +119,11 @@ async def startup_event():
     logger.info(f"🎮 Play now: {client_url}")
     if codespace_name:
         logger.info(f"⚠️  Remember to make port 8000 PUBLIC in the Ports tab!")
+    
+    # Start config file watcher for auto-restart on config changes
+    if _config_file_path:
+        asyncio.create_task(watch_config_file())
+        logger.info(f"👁️ Watching {os.path.basename(_config_file_path)} for changes")
 
 
 class CompetitionState(Enum):
@@ -1814,20 +1819,145 @@ def load_spec_file(spec_file: str) -> dict:
         return {}
 
 
+def validate_spec(spec: dict) -> bool:
+    """Validate that a spec dictionary has valid values. Returns True if valid."""
+    if not spec:
+        return False
+    
+    # Check numeric values are positive where required
+    if "arenas" in spec and (not isinstance(spec["arenas"], int) or spec["arenas"] < 1):
+        logger.error("Invalid config: 'arenas' must be a positive integer")
+        return False
+    if "points_to_win" in spec and (not isinstance(spec["points_to_win"], int) or spec["points_to_win"] < 1):
+        logger.error("Invalid config: 'points_to_win' must be a positive integer")
+        return False
+    if "reset_delay" in spec and (not isinstance(spec["reset_delay"], int) or spec["reset_delay"] < 0):
+        logger.error("Invalid config: 'reset_delay' must be a non-negative integer")
+        return False
+    if "speed" in spec and (not isinstance(spec["speed"], (int, float)) or spec["speed"] <= 0):
+        logger.error("Invalid config: 'speed' must be a positive number")
+        return False
+    if "bots" in spec and (not isinstance(spec["bots"], int) or spec["bots"] < 0):
+        logger.error("Invalid config: 'bots' must be a non-negative integer")
+        return False
+    
+    # Validate grid_size format if present
+    if "grid_size" in spec:
+        try:
+            width, height = spec["grid_size"].lower().split("x")
+            if int(width) < 5 or int(height) < 5:
+                logger.error("Invalid config: grid dimensions must be at least 5x5")
+                return False
+        except (ValueError, AttributeError):
+            logger.error("Invalid config: 'grid_size' must be in format 'WIDTHxHEIGHT'")
+            return False
+    
+    return True
+
+
+def apply_spec_to_config(spec: dict):
+    """Apply a validated spec dictionary to the global config object."""
+    if "arenas" in spec:
+        config.arenas = spec["arenas"]
+    if "points_to_win" in spec:
+        config.points_to_win = spec["points_to_win"]
+    if "reset_delay" in spec:
+        config.reset_delay = spec["reset_delay"]
+    if "speed" in spec:
+        config.tick_rate = spec["speed"]
+    if "bots" in spec:
+        config.bots = spec["bots"]
+    
+    # Parse grid size
+    if "grid_size" in spec:
+        width, height = spec["grid_size"].lower().split("x")
+        config.grid_width = int(width)
+        config.grid_height = int(height)
+    
+    # Fruit settings
+    if "fruit_warning" in spec:
+        config.fruit_warning = spec["fruit_warning"]
+    if "max_fruits" in spec:
+        config.max_fruits = spec["max_fruits"]
+    if "fruit_interval" in spec:
+        config.fruit_interval = spec["fruit_interval"]
+    
+    # Load fruit properties from spec
+    if "fruits" in spec:
+        for fruit_type, props in spec["fruits"].items():
+            if fruit_type in config.fruits:
+                config.fruits[fruit_type]["propensity"] = props.get("propensity", 0)
+                config.fruits[fruit_type]["lifetime"] = props.get("lifetime", 0)
+
+
+# Global variable to track config file modification time
+_config_file_mtime: float = 0.0
+_config_file_path: str = ""
+
+
+async def watch_config_file():
+    """Background task that watches for config file changes and restarts competition."""
+    global _config_file_mtime
+    
+    if not _config_file_path:
+        return
+    
+    while True:
+        await asyncio.sleep(2)  # Check every 2 seconds
+        
+        try:
+            current_mtime = os.path.getmtime(_config_file_path)
+            
+            if current_mtime > _config_file_mtime:
+                _config_file_mtime = current_mtime
+                logger.info(f"🔄 Config file changed, attempting to reload...")
+                
+                # Try to load and validate the new config
+                spec = load_spec_file(_config_file_path)
+                if not spec:
+                    logger.warning("⚠️ Config file is empty or invalid JSON, keeping current settings")
+                    continue
+                
+                if not validate_spec(spec):
+                    logger.warning("⚠️ Config file has invalid values, keeping current settings")
+                    continue
+                
+                # Apply new config
+                apply_spec_to_config(spec)
+                logger.info(f"✅ Config reloaded: {config.arenas} arenas, {config.points_to_win} points to win, {config.grid_width}x{config.grid_height} grid")
+                
+                # Restart the competition with new settings
+                await competition.start_waiting()
+                logger.info("🔄 Competition restarted with new settings")
+                
+        except FileNotFoundError:
+            pass  # File deleted, ignore
+        except Exception as e:
+            logger.error(f"Error watching config file: {e}")
+
+
 def apply_config(args):
     """Apply parsed arguments to server config."""
+    global _config_file_path, _config_file_mtime
+    
     # Load spec file (explicit arg, or default server-settings.json)
     spec = {}
     if args.spec_file:
         spec = load_spec_file(args.spec_file)
         if spec:
             logger.info(f"📄 Loaded config from {args.spec_file}")
+            _config_file_path = args.spec_file
     else:
         default_spec = os.path.join(os.path.dirname(os.path.abspath(__file__)), "server-settings.json")
         if os.path.exists(default_spec):
             spec = load_spec_file(default_spec)
             if spec:
                 logger.info(f"📄 Loaded config from server-settings.json")
+                _config_file_path = default_spec
+    
+    # Set initial modification time so we don't trigger on startup
+    if _config_file_path and os.path.exists(_config_file_path):
+        _config_file_mtime = os.path.getmtime(_config_file_path)
     
     # Apply settings: CLI args override spec file, spec file overrides defaults
     config.arenas = args.arenas if args.arenas is not None else spec.get("arenas", 1)
