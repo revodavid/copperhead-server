@@ -1,6 +1,6 @@
 # CopperHead Server
 
-Version: 3.2.1
+Version: 3.3.0
 
 A server for a 2-player Snake game. The CopperHead server manages game state and multi-round knockout competitions, communicating with human and robot clients via WebSocket API.
 
@@ -16,9 +16,9 @@ NOTE: This repository provides only the server for hosting and managing the game
 
 2. **Copy the WebSocket URL** displayed in the Codespaces window to the clipboard.
 
-    ![Connect Now information](img/connect-now.png "Connect Now")
+    - This "Connect Now" information is added to README.md after the CodeSpaces session has completed its launch.
 
-- This "Connect Now" information is added to README.md after the CodeSpaces session has completed its launch.
+    ![Connect Now information](img/connect-now.png "Connect Now")
 
 3. **Open the CopperHead client** in your web browser: [CopperHead Client](https://revodavid.github.io/copperhead-client/)
 
