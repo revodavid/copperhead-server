@@ -712,52 +712,52 @@ class Game:
         snake_list = list(self.snakes.values())
         if len(snake_list) == 2:
             s1, s2 = snake_list[0], snake_list[1]
-            head_on_collision = False
             
+            # Detect head-on collision (both alive, same position or crossed paths)
             if s1.alive and s2.alive and s1.head() == s2.head():
-                head_on_collision = True
-            # Also check if they crossed paths (swapped positions)
+                # Both heads at same position - mark both as crashed
+                s1.alive = False
+                s2.alive = False
             elif s1.alive and s2.alive and len(s1.body) >= 2 and len(s2.body) >= 2:
                 s1_prev_head = s1.body[1]
                 s2_prev_head = s2.body[1]
                 if s1.head() == s2_prev_head and s2.head() == s1_prev_head:
-                    head_on_collision = True
-            
-            if head_on_collision:
-                # Resolve simultaneous collision using tiebreaker rules:
+                    # Crossed paths - mark both as crashed
+                    s1.alive = False
+                    s2.alive = False
+
+        # Check game over and apply tiebreaker rules for simultaneous crashes
+        alive_snakes = [s for s in self.snakes.values() if s.alive]
+        if len(alive_snakes) <= 1:
+            self.running = False
+            if len(alive_snakes) == 1:
+                self.winner = alive_snakes[0].player_id
+            elif len(snake_list) == 2:
+                # Both snakes crashed simultaneously - apply tiebreaker rules:
                 # 1. Longer snake wins
                 # 2. If equal length, player who changed direction most recently loses
                 # 3. Otherwise, draw (no points awarded)
+                s1, s2 = snake_list[0], snake_list[1]
                 s1_len = len(s1.body)
                 s2_len = len(s2.body)
                 s1_changed = s1.changed_direction_last_move
                 s2_changed = s2.changed_direction_last_move
                 
                 if s1_len > s2_len:
-                    # S1 is longer, S1 wins
-                    s2.alive = False
+                    self.winner = s1.player_id
                 elif s2_len > s1_len:
-                    # S2 is longer, S2 wins
-                    s1.alive = False
+                    self.winner = s2.player_id
                 elif s1_changed and not s2_changed:
-                    # Equal length, S1 changed direction most recently, S1 loses
-                    s1.alive = False
+                    # S1 changed direction most recently, S1 loses, S2 wins
+                    self.winner = s2.player_id
                 elif s2_changed and not s1_changed:
-                    # Equal length, S2 changed direction most recently, S2 loses
-                    s2.alive = False
+                    # S2 changed direction most recently, S2 loses, S1 wins
+                    self.winner = s1.player_id
                 else:
                     # Equal length, both or neither changed direction - draw
-                    s1.alive = False
-                    s2.alive = False
-
-        # Check game over
-        alive_snakes = [s for s in self.snakes.values() if s.alive]
-        if len(alive_snakes) <= 1:
-            self.running = False
-            if len(alive_snakes) == 1:
-                self.winner = alive_snakes[0].player_id
+                    self.winner = None
             else:
-                self.winner = None  # Draw
+                self.winner = None  # Draw (fallback)
 
     def to_dict(self) -> dict:
         # Only report lifetime if within warning threshold

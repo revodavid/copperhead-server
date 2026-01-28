@@ -4,9 +4,12 @@ A game of CopperHead is played between two players on a rectangular grid. Each p
 
 The first player to collide with the wall or another player (unless protected by a buff) loses the game and the other player is awarded one point. 
 
-If both players collide simultaneously, the game ends in a draw and no points are awarded. Exception: if players collide head-to-head and only one player changed direction in the last move, that player loses and the other player is awarded the point.
+If both players crash simultaneously, the player with the longest snake wins the point. If both players have snakes of equal length, the player who changed direction most recently loses and their opponent wins the point. Otherwise, the game ends in a draw and no points are awarded.
 
-The size of the grid is configurable via server settings.
+Many game parameters are configurable via [server settings](server-settings.json), including:
+- the size of the game grid,
+- the types, frequencies and lifetime of food items that appear, and
+- the buffs that are available. 
 
 ## Movement
 
@@ -28,8 +31,6 @@ During gameplay, various fruit items may appear on the game grid. These fruits p
 - 🍒 Cherry: no effect
 - 🍉 Watermelon: no effect
 - 🥝 Kiwi: no effect
-
-The server controls which food items which appear, and at what frequency, and how long they remain on the grid.
 
 By default, exactly one one apple may appear at a time, and no other fruits appear.
 
