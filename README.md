@@ -40,11 +40,11 @@ See [Game Rules](game-rules.md) for full details on game mechanics and scoring.
 
 A Match of CopperHead consists of multiple games. The player who survives the game wins a point. The first player to reach a predefined number of points wins the match.
 
-## CopperHead Championship
+## CopperHead Tournaments
 
-The CopperHead server is designed to host a knockout tournament among human and/or AI players to determine the Championship winner.
+The CopperHead server is designed to host a knockout tournament among human and/or AI players to determine the Championship winner. See [Competition Logic](competition-logic.md) for full details on how competitions are structured and run.
 
-See [Competition Logic](competition-logic.md) for full details on how competitions are structured and run.
+Hosting a CopperHead Bot Hack Tournament is a fun way to engage friends or colleagues in coding AI opponents to compete in CopperHead. See [How-To-Host-A-Bot-Hack-Tournament.md](How-To-Host-A-Bot-Hack-Tournament.md) for step-by-step instructions.
 
 ## Server Reference
 
