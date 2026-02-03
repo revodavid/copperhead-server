@@ -8,4 +8,5 @@ See [Creating-Your-Own-Bot.md](Building-Your-Own-Bot.md) for instructions on bui
 
 ## Included Bots
 
-* None ... yet!
+* [`murderbot.py`](murderbot.py) Aggressively chases down the opponent to try and cause a collision. By @nonfamousd
+  
