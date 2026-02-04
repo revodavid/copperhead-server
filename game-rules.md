@@ -22,19 +22,21 @@ Snakes cannot reverse direction (e.g., if moving right, they cannot move left). 
 During gameplay, various fruit items may appear on the game grid. These fruits provide different bonuses when collected by a player's snake. The available fruit bonuses are as follows:
 
 - 🍎 Apple: increases player snake length by one
-- 🍊 Orange: no effect
-- 🍋 Lemon: no effect
+- 🍊 Orange: not yet implemented 
+- 🍋 Lemon: not yet implemented
 - 🍇 Grapes: increases player snake length by one. decreases opponent's snake length by one if greater than one.
-- 🍓 Strawberry: no effect
-- 🍌 Banana: no effect
-- 🍑 Peach: no effect
-- 🍒 Cherry: no effect
-- 🍉 Watermelon: no effect
-- 🥝 Kiwi: no effect
+- 🍓 Strawberry: not yet implemented
+- 🍌 Banana: not yet implemented
+- 🍑 Peach: not yet implemented
+- 🍒 Cherry: not yet implemented
+- 🍉 Watermelon: not yet implemented
+- 🥝 Kiwi: not yet implemented
 
-By default, exactly one one apple may appear at a time, and no other fruits appear.
+By default, exactly one fruit may appear at a time. Apples appear 90% of the time (propensity 9) and grapes appear 10% of the time (propensity 1). Grapes expire after 20 ticks if not collected.
 
 ## Buffs
+
+NOTE: Buffs are not yet implemented. The following is the intended design for buffs, which may be subject to change.
 
 Each player snake posseses exactly one buff at a time. Buffs provide temporary advantages or abilities to the player snake. Collecting fruit may change the active buff. The available buffs are as follows:
 
@@ -48,5 +50,3 @@ Each player snake posseses exactly one buff at a time. Buffs provide temporary a
 - ? Question Mark: a random buff is applied when the player collects this fruit.
 
 Only the Default buff is enabled by default. Other buffs may be enabled by enabling the corresponding fruit via server settings.
-
-

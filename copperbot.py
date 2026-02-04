@@ -165,9 +165,12 @@ class RobotPlayer:
             else:
                 self.log(f"Draw! (Match: {my_wins}-{opp_wins}, first to {points_to_win})")
             
-            # Server automatically keeps players ready between games in a match
-            # No need to send ready again - just continue processing messages
-            self.log("Waiting for next game...")
+            # Signal ready for next game in the match
+            await self.ws.send(json.dumps({
+                "action": "ready",
+                "name": f"CopperBot L{self.difficulty}"
+            }))
+            self.log("Ready for next game...")
         
         elif msg_type == "match_complete":
             # Match is over - check if we won or lost

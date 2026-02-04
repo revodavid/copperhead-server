@@ -1072,10 +1072,10 @@ class GameRoom:
                             await self.room_manager.broadcast_room_list_to_all_observers()
                         return  # Exit game loop - match is done
                     else:
-                        # Continue match - start next game after brief delay
-                        logger.info(f"🔄 [Room {self.room_id}] No match winner yet, starting next game...")
-                        await asyncio.sleep(2)
-                        await self._start_next_game()
+                        # Continue match - wait for players to ready up again
+                        logger.info(f"🔄 [Room {self.room_id}] No match winner yet, waiting for players to ready up...")
+                        self.ready.clear()
+                        await self._wait_for_ready()
                         
                 await asyncio.sleep(config.tick_rate)
         except asyncio.CancelledError:
@@ -1123,11 +1123,22 @@ class GameRoom:
             self.wins[1], self.wins[2]
         )
     
+    async def _wait_for_ready(self):
+        """Wait for both players to signal ready, then start the next game."""
+        while len(self.ready) < 2:
+            # Check if players are still connected
+            if len(self.connections) < 2:
+                logger.info(f"⚠️ [Room {self.room_id}] Player disconnected while waiting for ready")
+                return
+            await asyncio.sleep(0.1)
+        
+        # Both players ready - start next game
+        await self._start_next_game()
+    
     async def _start_next_game(self):
         """Start the next game in the match."""
         self.game = Game(mode="two_player")
         self.game.running = True
-        self.ready = {1, 2}  # Both players stay ready
         
         await self.broadcast({
             "type": "start", 
@@ -1395,7 +1406,7 @@ class RoomManager:
         ]
         
         return {
-            "version": "3.4.0",
+            "version": "3.4.1",
             "arenas": config.arenas,
             "max_players": max_players,
             "total_players": total_players,
