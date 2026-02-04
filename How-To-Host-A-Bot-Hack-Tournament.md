@@ -1,6 +1,6 @@
 # Hosting a CopperHead Bot Hack Tournament
 
-Looking for a fun way to hang out with your tech frients? Host a CopperHead Bot Hack Tournament! CopperHead is a head-to-head Snake game tournament server that supports AI bots, making it perfect for competitive programming events.
+Looking for a fun way to hang out with your tech friends? Host a CopperHead Bot Hack Tournament! CopperHead is a head-to-head Snake game tournament server that supports AI bots, making it perfect for competitive programming events.
 
 A CopperHead Bot Hack Tournament is simple: after an hour or two hacking together bots to play the Snake game, the winner is the team whose bot wins out against all other bots (and maybe even humans!) in a knockout tournament hosted on a CopperHead server. 
 
@@ -32,9 +32,9 @@ Share your modified `server-settings.json` file and the server URL for your game
 
 ## Step 2: Let the bot building begin!
 
-Set a time limit for bot development - 1 to 2 hours is ideal for AI-supported coding. Ring a bell or use a timer to signal the start and end of the hacking period. When the hacking period is over, the final competition begins!
+Set a time limit for bot development - 1 hour is sufficient for AI-supported coding, longer for manual coding or more sophisticated strategy development. Ring a bell or use a timer to signal the start and end of the hacking period. When the hacking period is over, the final competition begins!
 
-Each team should begin by forking the [copperhead-server](https://github.com/revodavid/copperhead-server) repository to their own GitHub account, and updating the `server-settings.json` file to match the host's game rules.
+Each team should begin by forking the [copperhead-server](https://github.com/revodavid/copperhead-server) repository to their own GitHub account, and updating the `server-settings.json` file to match the host's game rules. Launch a server in GitHub Codespaces for the team to use in development. (TIP: you can restart the server at any time by modifying and saving the `server-settings.json` file.)
 
 Teams should then create their own `hackbot.py` file to build their bot -- copying the default `copperbot.py` file from the repository is a great place to start. (You can find other bots to inspire your own in the `bot-library` directory.) Make sure the bot assigns itself a unique name matching the team name.
 
@@ -47,6 +47,8 @@ Using a coding agent like [GitHub Copilot](https://github.com/features/copilot) 
 * Anyone can use GitHub Copilot straight from the GitHub web interface - no code editor required!
 * Beginner programmers can use GitHub Copilot CLI to generate code from natural language prompts, even without coding experience.
 * Experienced programmers can use GitHub Copilot in their favorite IDE to speed up bot development.
+
+You can use any AI support you like! See how your favorite coding assistant fares in the competition versus bots made with other tools.
 
 If you don't want to code at all, you can still join in the fun by suggesting and testing bot strategies as a human opponent during the hacking period.
 

@@ -885,8 +885,10 @@ class GameRoom:
             self.game_task = None
             logger.info(f"⏹️ [Room {self.room_id}] Game stopped (player disconnected)")
         
-        # If game was running, opponent wins by forfeit (unless match already reported)
-        if was_game_running and opponent_connected and not self.match_reported:
+        # If game was running OR competition is in progress, opponent wins by forfeit
+        # This handles disconnects both during gameplay and during pre-game countdown
+        competition_active = competition.state == CompetitionState.IN_PROGRESS
+        if (was_game_running or competition_active) and opponent_connected and not self.match_reported:
             self.match_reported = True
             self.match_complete = True
             logger.info(f"🏆 [Room {self.room_id}] {self.names.get(opponent_id, 'Opponent')} wins by forfeit!")
@@ -1393,7 +1395,7 @@ class RoomManager:
         ]
         
         return {
-            "version": "3.3.0",
+            "version": "3.4.0",
             "arenas": config.arenas,
             "max_players": max_players,
             "total_players": total_players,

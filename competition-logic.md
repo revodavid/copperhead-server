@@ -10,13 +10,13 @@ No player may join a competition after it begins. Players who disconnect during 
 
 ## Round 1
 
-In Round 1, players are paired at random to compete in matches. 
+In Round 1, players are paired in the order they joined to compete in matches. 
 
 Each match is a series of games played according to the standard CopperHead rules. Winning a game awards one point, and the first player to reach the predefined number of points wins the match and advances to the next round.
 
 ## Round 2 and subsequent Rounds
 
-In Round 2, winners from the prior round are paired at random to compete in new matches. If there are an odd number of players remaining, the player scoring the most points is awarded a "Bye" and automatically advances to the next round without competing in a match. In the case of a tie, the player who completes their prior round first is awarded the Bye. If there is still a tie, a coin flip determines who receives the Bye.
+In Round 2, winners from the prior round are paired at random to compete in new matches. If there are an odd number of players remaining, the player scoring the most points is awarded a "Bye" and automatically advances to the next round without competing in a match. In the case of a tie, the player who completes their prior match in the shortest time is awarded the Bye. If there is still a tie, a coin flip determines who receives the Bye.
 
 ## Final Round
 

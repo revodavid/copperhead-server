@@ -8,6 +8,7 @@ Connects to a CopperHead server and plays the game using AI.
 import asyncio
 import json
 import argparse
+import random
 import websockets
 from collections import deque
 
@@ -241,10 +242,26 @@ class RobotPlayer:
                 nearest_dist = dist
                 nearest_food = food
         
-        # Build set of dangerous positions (all snake bodies)
+        # Build set of dangerous positions (snake bodies, excluding tails)
+        # 
+        # SNAKE MOVEMENT MECHANICS:
+        # When a snake moves, its head advances to a new position and its tail
+        # vacates its current position (unless the snake just ate food and grows).
+        # This means tail positions will be SAFE on the next tick in most cases.
+        # 
+        # By excluding tails from the dangerous set, the bot can:
+        # - Move into positions that tails currently occupy (they'll be gone)
+        # - Find more escape routes when surrounded
+        # - Make less defensive, more effective decisions
+        #
+        # Note: If you want perfect accuracy, you'd also check if a snake's head
+        # is on food (meaning it will grow and the tail stays). For simplicity,
+        # we assume tails always move.
         dangerous = set()
         for snake_data in snakes.values():
-            for segment in snake_data.get("body", []):
+            body = snake_data.get("body", [])
+            # Exclude the last segment (tail) - it will move on the next tick
+            for segment in body[:-1]:
                 dangerous.add((segment[0], segment[1]))
         
         # Possible moves
@@ -325,7 +342,6 @@ class RobotPlayer:
             score += edge_dist * 5
             
             # Random factor based on difficulty (lower = more random)
-            import random
             mistake_chance = (10 - self.difficulty) / 20
             if random.random() < mistake_chance:
                 score -= random.randint(0, 30)
