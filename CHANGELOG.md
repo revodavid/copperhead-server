@@ -5,7 +5,7 @@ All notable changes to the CopperHead Server are documented in this file.
 ## [3.5.1] - 2026-02-10
 
 ### Added
-- Participant guide for Bot Hack Tournaments (Participate-in-a-Hack-Tournament.md)
+- Participant guide for Bot Hack Tournaments (How-to-Participate-in-a-Hack-Tournament.md)
 
 ### Fixed
 - Version number in README.md now matches current release
