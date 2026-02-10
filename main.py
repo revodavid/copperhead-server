@@ -1302,9 +1302,13 @@ class RoomManager:
         ]
         
         # Include round info so observers can update their display
+        bye_player_name = None
+        if competition.current_bye_uid and competition.current_bye_uid in competition.players:
+            bye_player_name = competition.players[competition.current_bye_uid].name
         round_info = {
             "round": competition.current_round,
-            "total_rounds": competition._calculate_total_rounds()
+            "total_rounds": competition._calculate_total_rounds(),
+            "bye_player": bye_player_name
         }
         
         # Notify observers in rooms
