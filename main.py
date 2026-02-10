@@ -1473,6 +1473,7 @@ class RoomManager:
             "grid_width": config.grid_width,
             "grid_height": config.grid_height,
             "points_to_win": config.points_to_win,
+            "bots": config.bots,
             "fruits": active_fruits,
             "rooms": [
                 {
