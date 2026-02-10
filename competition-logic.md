@@ -16,7 +16,7 @@ Each match is a series of games played according to the standard CopperHead rule
 
 ## Round 2 and subsequent Rounds
 
-In Round 2, winners from the prior round are paired at random to compete in new matches. If there are an odd number of players remaining, the player scoring the most points is awarded a "Bye" and automatically advances to the next round without competing in a match. In the case of a tie, the player who completes their prior match in the shortest time is awarded the Bye. If there is still a tie, a coin flip determines who receives the Bye.
+In Round 2, winners from the prior round are paired at random to compete in new matches. If there are an odd number of players remaining, the player scoring the most points is awarded a "Bye" and automatically advances to the next round without competing in a match. (For the purposes of these calculations, the player with a bye in the current round has scored zero points.) In the case of a tie, the player whose opponent scores the fewest points is awarded the Bye. If there is still a tie, a coin flip determines who receives the Bye.
 
 ## Final Round
 

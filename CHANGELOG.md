@@ -2,6 +2,15 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [3.5.2] - 2026-02-10
+
+### Added
+- Tournament integration test (tests/test_tournament.py)
+- server-settings.test.json for fast tournament testing
+
+### Changed
+- server-settings.test.json and tests/ added to .gitignore
+
 ## [3.5.1] - 2026-02-10
 
 ### Added

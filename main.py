@@ -355,8 +355,11 @@ class Competition:
                 
                 # Check if all matches in round are complete
                 pairings = self.rounds[self.current_round - 1]
-                logger.info(f"📊 Round {self.current_round}: {len(self.match_results[self.current_round - 1])}/{len(pairings)} matches complete")
-                if len(self.match_results[self.current_round - 1]) >= len(pairings):
+                # Bye results are pre-added to match_results, so account for them
+                bye_count = 1 if self.current_bye_uid else 0
+                actual_matches = len(self.match_results[self.current_round - 1]) - bye_count
+                logger.info(f"📊 Round {self.current_round}: {actual_matches}/{len(pairings)} matches complete")
+                if actual_matches >= len(pairings):
                     await self._advance_round()
             except Exception as e:
                 logger.error(f"❌ Error in report_match_complete: {e}")
@@ -400,10 +403,10 @@ class Competition:
         # Handle odd number of winners - highest scorer gets a Bye
         bye_player = None
         if len(winners) % 2 == 1:
-            # Sort winners by: game_points (desc), finish_time (asc), random tiebreaker
+            # Sort winners by: game_points (desc), opponent_points (asc), random tiebreaker
             winner_players = [self.players[uid] for uid in winners]
             winner_players.sort(
-                key=lambda p: (-p.game_points, p.last_match_finish_time, random.random())
+                key=lambda p: (-p.game_points, p.opponent_points, random.random())
             )
             bye_player = winner_players[0]
             winners.remove(bye_player.uid)
@@ -1470,7 +1473,7 @@ class RoomManager:
         ]
         
         return {
-            "version": "3.5.1",
+            "version": "3.5.2",
             "arenas": config.arenas,
             "max_players": max_players,
             "total_players": total_players,

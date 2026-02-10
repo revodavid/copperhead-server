@@ -22,3 +22,4 @@ Thumbs.db
 # Project
 *.log
 server-settings.local.json
+server-settings.test.json
