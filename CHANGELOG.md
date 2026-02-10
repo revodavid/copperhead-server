@@ -9,6 +9,8 @@ All notable changes to the CopperHead Server are documented in this file.
 
 ### Fixed
 - Version number in README.md now matches current release
+- Competition status WebSocket broadcast now includes bye_player field
+- Documentation fixes: typos, broken links, incorrect port numbers, and step numbering
 
 ## [3.5.0] - 2026-02-05
 

@@ -436,11 +436,15 @@ class Competition:
     async def _broadcast_competition_status(self):
         """Send competition status to all players."""
         pairings = self.rounds[self.current_round - 1] if self.rounds else []
+        bye_player_name = None
+        if self.current_bye_uid and self.current_bye_uid in self.players:
+            bye_player_name = self.players[self.current_bye_uid].name
         status = {
             "type": "competition_status",
             "state": self.state.value,
             "round": self.current_round,
             "total_rounds": self._calculate_total_rounds(),
+            "bye_player": bye_player_name,
             "pairings": [
                 {
                     "arena": i + 1,

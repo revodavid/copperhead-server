@@ -1,8 +1,8 @@
 # How Competitions work in CopperHead
 
-## Before Competion Starts
+## Before Competition Starts
 
-When the server is launched, the `arenas` option determines the number of players in the competion. The competion will not start until twice that number of players have joined.
+When the server is launched, the `arenas` option determines the number of players in the competition. The competition will not start until twice that number of players have joined.
 
 Human or AI players, or a mixture of both, may join the server before the competition begins.
 

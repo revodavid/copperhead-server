@@ -30,7 +30,7 @@ Follow the instructions in the [CopperHead Server README](https://github.com/rev
 
 Share your modified `server-settings.json` file and the server URL for your game with all participants so they can code their bots to the correct game rules.
 
-## Step 2: Let the bot building begin!
+## Step 3: Let the bot building begin!
 
 Set a time limit for bot development - 1 hour is sufficient for AI-supported coding, longer for manual coding or more sophisticated strategy development. Ring a bell or use a timer to signal the start and end of the hacking period. When the hacking period is over, the final competition begins!
 
@@ -59,7 +59,7 @@ To test your bot:
 
 1. Launch your bot on the team server:
     ```bash
-    python hackbot.py --name "TeamName Bot" --server wss://github-codespaces-url.app.github.io/ws/
+    python hackbot.py --name "TeamName Bot" --server wss://github-codespaces-url.app.github.dev/ws/
     ```
    * You can find the server URL in the Codespaces terminal output, and at the bottom of the client lobby screen.
 
@@ -71,7 +71,7 @@ To test your bot:
 
 Feeling confident? Try testing your bot against other teams' bots by connecting to the host's public server during the hacking period!
 
-## Step 3: The Final Tournament
+## Step 4: The Final Tournament
 
 When the hacking period ends, it's time for the final tournament! At this point, humans may join the tournament as a team, if you like.
 
@@ -83,13 +83,13 @@ When the hacking period ends, it's time for the final tournament! At this point,
     ```
    * Human players may also join by launching the Copperhead client on the tournament server and clicking "Join".
  
-   * If still have an odd number of teams, you will need to add a bot opponent to begin the tournament. Click "Add Bot" in the client lobby to add a Level 1 CopperBot opponent.
+   * If you still have an odd number of teams, you will need to add a bot opponent to begin the tournament. Click "Add Bot" in the client lobby to add a Level 1 CopperBot opponent.
 
 3. When all teams have joined, the tournament will begin automatically. Watch the action on the big screen as teams compete in knockout rounds. The Host controls the action on the Observer screen, switching between active games and providing commentary.
 
 4. The winning team is the human or bot that wins the final match! Celebrate their victory -- oversized champagne bottles optional.
 
-## Step 4: Save your bots!
+## Step 5: Save your bots!
 
 Save your bots to your forked github repository. You can do this from the Source Control panel in Codespaces, or by committing and pushing changes via the terminal:
     git add .
