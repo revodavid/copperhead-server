@@ -429,6 +429,8 @@ class Competition:
             logger.info(f"🎫 {bye_player.name} auto-advances via Bye")
         
         await self._broadcast_competition_status()
+        # Pause so observers can see round results before next round begins
+        await asyncio.sleep(5)
         await self._create_round_matches()
     
     async def _broadcast_competition_status(self):
@@ -1102,6 +1104,8 @@ class GameRoom:
                             await self.room_manager.broadcast_room_list_to_all_observers()
                         return  # Exit game loop - match is done
                     else:
+                        # Pause so observers can see the result before next game
+                        await asyncio.sleep(3)
                         # Continue match - wait for players to ready up again
                         logger.info(f"🔄 [Room {self.room_id}] No match winner yet, waiting for players to ready up...")
                         self.ready.clear()
