@@ -1,0 +1,23 @@
+{
+    "arenas": 6,
+    "points_to_win": 2,
+    "reset_delay": 5,
+    "grid_size": "20x16",
+    "speed": 0.05,
+    "bots": 12,
+    "fruit_warning": 10,
+    "max_fruits": 10,
+    "fruit_interval": 3,
+    "fruits": {
+        "apple": {"propensity": 10, "lifetime": 0},
+        "orange": {"propensity": 0, "lifetime": 0},
+        "lemon": {"propensity": 0, "lifetime": 0},
+        "grapes": {"propensity": 1, "lifetime": 0},
+        "strawberry": {"propensity": 0, "lifetime": 0},
+        "banana": {"propensity": 0, "lifetime": 0},
+        "peach": {"propensity": 0, "lifetime": 0},
+        "cherry": {"propensity": 0, "lifetime": 0},
+        "watermelon": {"propensity": 0, "lifetime": 0},
+        "kiwi": {"propensity": 0, "lifetime": 0}
+    }
+}
