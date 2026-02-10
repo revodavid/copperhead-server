@@ -612,7 +612,6 @@ class Game:
         self.running = False
         self.winner: Optional[int] = None
         self.ticks_since_last_fruit = config.fruit_interval  # Allow immediate first spawn
-        self.spawn_food_if_needed()
 
     def choose_fruit_type(self) -> Optional[str]:
         """Choose a random fruit type based on propensity weights. Returns None if no fruits configured."""
@@ -1093,6 +1092,9 @@ class GameRoom:
                     await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins, "names": self.names, "room_id": self.room_id, "points_to_win": config.points_to_win})
                     
                     if match_winner:
+                        # Clear game_task before advancing so clear_all_rooms()
+                        # won't cancel this task mid-execution
+                        self.game_task = None
                         try:
                             await self._handle_match_complete(match_winner)
                         except Exception as e:
@@ -1104,11 +1106,12 @@ class GameRoom:
                             await self.room_manager.broadcast_room_list_to_all_observers()
                         return  # Exit game loop - match is done
                     else:
+                        # Continue match - clear ready state before pausing
+                        # so ready signals arriving during the pause are preserved
+                        self.ready.clear()
                         # Pause so observers can see the result before next game
                         await asyncio.sleep(3)
-                        # Continue match - wait for players to ready up again
                         logger.info(f"🔄 [Room {self.room_id}] No match winner yet, waiting for players to ready up...")
-                        self.ready.clear()
                         await self._wait_for_ready()
                         
                 await asyncio.sleep(config.tick_rate)
