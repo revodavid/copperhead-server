@@ -4,7 +4,7 @@ This folder contains bots contributed by participants in CopperHead Bot Hack Tou
 
 Submit your own bot by creating a pull request with your bot file added to this directory or contained in a sub-directory. Please include a brief description of your bot's strategy in the PR description.
 
-See [Building-Your-Own-Bot.md](../Building-Your-Own-Bot.md) for instructions on building a bot for CopperHead.
+See [How-To-Build-Your-Own-Bot.md](../How-To-Build-Your-Own-Bot.md) for instructions on building a bot for CopperHead.
 
 ## Included Bots
 

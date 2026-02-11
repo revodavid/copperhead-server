@@ -26,7 +26,7 @@ Make sure your bot assigns itself a name matching your team name!
 
 ### Writing your bot
 
-See [Building-Your-Own-Bot.md](Building-Your-Own-Bot.md) for detailed instructions on building a bot. The [Game Rules](game-rules.md) and [Competition Logic](competition-logic.md) documents are also useful references.
+See [How-To-Build-Your-Own-Bot.md](How-To-Build-Your-Own-Bot.md) for detailed instructions on building a bot. The [Game Rules](game-rules.md) and [Competition Logic](competition-logic.md) documents are also useful references.
 
 ### Using AI to help you code
 
