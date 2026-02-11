@@ -9,11 +9,19 @@ All notable changes to the CopperHead Server are documented in this file.
 - `--name` argument for copperbot.py and murderbot.py
 - Detailed strategy documentation in copperbot.py
 - GitHub Copilot CLI in dev container (Issue #6)
+- MIT license
+- Tutorial: Use GitHub Copilot to build a bot (How-To-Build-Your-Own-Bot.md)
+- Copilot instructions for server repository (.github/copilot-instructions.md)
+
+### Changed
+- Renamed Building-Your-Own-Bot.md to How-To-Build-Your-Own-Bot.md
+- Dev container uses `python:3` image tag for latest stable Python
 
 ### Fixed
 - Emoji crash on Windows console in copperbot.py and murderbot.py
 - Bots now exit cleanly when tournament ends instead of raising SystemExit
 - Player count in /competition endpoint now shows connected players while waiting
+- Dev container image compatibility fixes
 
 ## [3.5.2] - 2026-02-10
 
