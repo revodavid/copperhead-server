@@ -505,11 +505,17 @@ class Competition:
             elapsed = time.time() - self.reset_start_time
             reset_in = max(0, int(config.reset_delay - elapsed))
         
+        # Count players: use competition registrations, or count from rooms
+        # while still waiting for players to fill up
+        player_count = len(self.players)
+        if self.state == CompetitionState.WAITING_FOR_PLAYERS and player_count == 0:
+            player_count = sum(len(r.connections) for r in room_manager.rooms.values())
+
         return {
             "state": self.state.value,
             "round": self.current_round if self.current_round > 0 else 1,
             "total_rounds": self._calculate_total_rounds(),
-            "players": len(self.players),
+            "players": player_count,
             "required": self.required_players(),
             "champion": self.players[self.champion_uid].name if self.champion_uid else None,
             "points_to_win": config.points_to_win,
@@ -1473,7 +1479,7 @@ class RoomManager:
         ]
         
         return {
-            "version": "3.5.2",
+            "version": "3.6.0",
             "arenas": config.arenas,
             "max_players": max_players,
             "total_players": total_players,

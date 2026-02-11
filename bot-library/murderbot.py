@@ -16,8 +16,9 @@ from collections import deque
 class RobotPlayer:
     """Autonomous player that connects to CopperHead server and plays using AI."""
     
-    def __init__(self, server_url: str, difficulty: int = 5, quiet: bool = False):
+    def __init__(self, server_url: str, name: str = None, difficulty: int = 5, quiet: bool = False):
         self.server_url = server_url
+        self.name = name or f"MurderBot L{difficulty}"
         self.difficulty = max(1, min(10, difficulty))
         self.quiet = quiet
         self.player_id = None
@@ -32,7 +33,8 @@ class RobotPlayer:
     
     def log(self, msg: str):
         if not self.quiet:
-            print(msg)
+            # Replace emoji/special chars that Windows console can't display
+            print(msg.encode("ascii", errors="replace").decode("ascii"))
         
     async def wait_for_open_competition(self):
         """Wait until a competition is accepting players."""
@@ -84,10 +86,10 @@ class RobotPlayer:
             return False
     
     async def play(self):
-        """Main game loop - terminates on disconnect."""
+        """Main game loop - terminates on disconnect or competition end."""
         if not await self.connect():
-            self.log("Failed to connect to server. Terminating.")
-            raise SystemExit(1)
+            self.log("Failed to connect to server. Exiting.")
+            return
             
         self.running = True
         
@@ -97,13 +99,16 @@ class RobotPlayer:
                 data = json.loads(message)
                 await self.handle_message(data)
         except websockets.ConnectionClosed:
-            self.log("Connection closed. Terminating.")
-            raise SystemExit(0)
+            self.log("Connection closed.")
         except Exception as e:
-            self.log(f"Error: {e}. Terminating.")
-            raise SystemExit(1)
+            self.log(f"Error: {e}")
         finally:
             self.running = False
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
+            self.log("Bot stopped.")
             
     async def handle_message(self, data: dict):
         """Handle incoming server messages."""
@@ -127,9 +132,9 @@ class RobotPlayer:
             await self.ws.send(json.dumps({
                 "action": "ready",
                 "mode": "two_player",
-                "name": f"MurderBot L{self.difficulty}"
+                "name": self.name
             }))
-            self.log(f"Ready! Playing at difficulty {self.difficulty}")
+            self.log(f"Ready! Playing as '{self.name}' at difficulty {self.difficulty}")
         
         elif msg_type == "state":
             self.game_state = data.get("game")
@@ -168,7 +173,7 @@ class RobotPlayer:
             # Signal ready for next game in the match
             await self.ws.send(json.dumps({
                 "action": "ready",
-                "name": f"MurderBot L{self.difficulty}"
+                "name": self.name
             }))
             self.log("Ready for next game...")
         
@@ -182,15 +187,13 @@ class RobotPlayer:
             opp_score = final_score.get(str(opp_id), 0) or final_score.get(opp_id, 0)
             
             if winner_id == self.player_id:
-                self.log(f"🏆 Match won! Final: {my_score}-{opp_score}")
+                self.log(f"Match won! Final: {my_score}-{opp_score}")
                 self.log("Waiting for next round assignment...")
                 # Don't sleep - server will send match_assigned for next round
             else:
                 self.log(f"Match lost to {winner_name}. Final: {my_score}-{opp_score}")
-                self.log("Terminating...")
+                self.log("Exiting.")
                 self.running = False
-                await self.ws.close()
-                raise SystemExit(0)
         
         elif msg_type == "match_assigned":
             # Assigned to a new match (Round 2+)
@@ -198,16 +201,14 @@ class RobotPlayer:
             self.player_id = data.get("player_id")
             self.game_state = None  # Reset game state for new match
             opponent = data.get("opponent", "Opponent")
-            self.log(f"🎮 Assigned to Arena {self.room_id} as Player {self.player_id} vs {opponent}")
+            self.log(f"Assigned to Arena {self.room_id} as Player {self.player_id} vs {opponent}")
         
         elif msg_type == "competition_complete":
-            # Competition is over - we won!
+            # Competition is over
             champion = data.get("champion", {}).get("name", "Unknown")
-            self.log(f"🏆 Competition complete! Champion: {champion}")
-            self.log("Terminating...")
+            self.log(f"Competition complete! Champion: {champion}")
+            self.log("Exiting.")
             self.running = False
-            await self.ws.close()
-            raise SystemExit(0)
             
         elif msg_type == "waiting":
             self.log("Waiting for opponent...")
@@ -403,13 +404,15 @@ async def main():
     parser = argparse.ArgumentParser(description="CopperHead Robot Player")
     parser.add_argument("--server", "-s", default="ws://localhost:8765/ws/",
                         help="Server WebSocket URL (default: ws://localhost:8765/ws/)")
+    parser.add_argument("--name", "-n", default=None,
+                        help="Bot display name (default: MurderBot L<difficulty>)")
     parser.add_argument("--difficulty", "-d", type=int, default=5,
                         help="AI difficulty 1-10 (default: 5)")
     parser.add_argument("--quiet", "-q", action="store_true",
                         help="Suppress output (for spawned bots)")
     args = parser.parse_args()
     
-    robot = RobotPlayer(args.server, args.difficulty, quiet=args.quiet)
+    robot = RobotPlayer(args.server, name=args.name, difficulty=args.difficulty, quiet=args.quiet)
     
     if not args.quiet:
         print("CopperHead Robot Player")
