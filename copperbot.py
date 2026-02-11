@@ -3,6 +3,47 @@
 CopperHead Robot - Autonomous Snake game player.
 
 Connects to a CopperHead server and plays the game using AI.
+Launched by the Add Bot button in the game client, or can be run standalone.
+
+STRATEGY OVERVIEW
+-----------------
+CopperBot uses a score-based decision system. Each tick, it evaluates all safe
+(non-reversing, non-wall, non-snake) moves and picks the one with the highest
+score. The scoring considers four factors:
+
+  1. Food pursuit: Strong bonus for landing on food, plus a distance-based
+     bonus for moves that get closer to the nearest food item. Apples are
+     slightly preferred over other food types.
+
+  2. Survival: Moves that leave more escape routes (safe neighboring tiles)
+     score higher, reducing the chance of getting trapped.
+
+  3. Edge avoidance: A small bonus for staying away from walls, which keeps
+     more options open for future moves.
+
+  4. Head-on collision handling: The bot predicts where the opponent's head
+     will be next tick (assuming no direction change) and adjusts its score
+     for that tile based on difficulty level:
+       - Level 1:    Always avoid the predicted tile.
+       - Level 2-5:  Avoid with decreasing probability (90% to 10%).
+       - Level 6-9:  Seek the collision (if longer) with increasing
+                     probability (10% to 90%), otherwise avoid.
+       - Level 10:   Always seek the collision if longer, otherwise avoid.
+
+  5. Randomness: Lower difficulty levels introduce random score penalties,
+     making the bot less consistent and easier to beat.
+
+The bot also excludes tail segments from its danger map, since tails vacate
+their position on the next tick (unless the snake just ate).
+
+CUSTOMIZATION
+-------------
+To modify CopperBot's behavior, adjust the score weights in calculate_move():
+  - collision_bonus / collision_penalty: Head-on collision aggression
+  - Food bonus (1000): How much the bot prioritizes eating
+  - escape_routes weight (50): How cautious the bot is about trapping itself
+  - edge_dist weight (5): How much the bot avoids walls
+  - mistake_chance: How often low-difficulty bots make random errors
 """
 
 import asyncio
@@ -16,8 +57,9 @@ from collections import deque
 class RobotPlayer:
     """Autonomous player that connects to CopperHead server and plays using AI."""
     
-    def __init__(self, server_url: str, difficulty: int = 5, quiet: bool = False):
+    def __init__(self, server_url: str, name: str = None, difficulty: int = 5, quiet: bool = False):
         self.server_url = server_url
+        self.name = name or f"CopperBot L{difficulty}"
         self.difficulty = max(1, min(10, difficulty))
         self.quiet = quiet
         self.player_id = None
@@ -32,7 +74,8 @@ class RobotPlayer:
     
     def log(self, msg: str):
         if not self.quiet:
-            print(msg)
+            # Replace emoji/special chars that Windows console can't display
+            print(msg.encode("ascii", errors="replace").decode("ascii"))
         
     async def wait_for_open_competition(self):
         """Wait until a competition is accepting players."""
@@ -84,10 +127,10 @@ class RobotPlayer:
             return False
     
     async def play(self):
-        """Main game loop - terminates on disconnect."""
+        """Main game loop - terminates on disconnect or competition end."""
         if not await self.connect():
-            self.log("Failed to connect to server. Terminating.")
-            raise SystemExit(1)
+            self.log("Failed to connect to server. Exiting.")
+            return
             
         self.running = True
         
@@ -97,13 +140,16 @@ class RobotPlayer:
                 data = json.loads(message)
                 await self.handle_message(data)
         except websockets.ConnectionClosed:
-            self.log("Connection closed. Terminating.")
-            raise SystemExit(0)
+            self.log("Connection closed.")
         except Exception as e:
-            self.log(f"Error: {e}. Terminating.")
-            raise SystemExit(1)
+            self.log(f"Error: {e}")
         finally:
             self.running = False
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
+            self.log("Bot stopped.")
             
     async def handle_message(self, data: dict):
         """Handle incoming server messages."""
@@ -127,9 +173,9 @@ class RobotPlayer:
             await self.ws.send(json.dumps({
                 "action": "ready",
                 "mode": "two_player",
-                "name": f"CopperBot L{self.difficulty}"
+                "name": self.name
             }))
-            self.log(f"Ready! Playing at difficulty {self.difficulty}")
+            self.log(f"Ready! Playing as '{self.name}' at difficulty {self.difficulty}")
         
         elif msg_type == "state":
             self.game_state = data.get("game")
@@ -168,7 +214,7 @@ class RobotPlayer:
             # Signal ready for next game in the match
             await self.ws.send(json.dumps({
                 "action": "ready",
-                "name": f"CopperBot L{self.difficulty}"
+                "name": self.name
             }))
             self.log("Ready for next game...")
         
@@ -182,15 +228,13 @@ class RobotPlayer:
             opp_score = final_score.get(str(opp_id), 0) or final_score.get(opp_id, 0)
             
             if winner_id == self.player_id:
-                self.log(f"🏆 Match won! Final: {my_score}-{opp_score}")
+                self.log(f"Match won! Final: {my_score}-{opp_score}")
                 self.log("Waiting for next round assignment...")
                 # Don't sleep - server will send match_assigned for next round
             else:
                 self.log(f"Match lost to {winner_name}. Final: {my_score}-{opp_score}")
-                self.log("Terminating...")
+                self.log("Exiting.")
                 self.running = False
-                await self.ws.close()
-                raise SystemExit(0)
         
         elif msg_type == "match_assigned":
             # Assigned to a new match (Round 2+)
@@ -198,22 +242,24 @@ class RobotPlayer:
             self.player_id = data.get("player_id")
             self.game_state = None  # Reset game state for new match
             opponent = data.get("opponent", "Opponent")
-            self.log(f"🎮 Assigned to Arena {self.room_id} as Player {self.player_id} vs {opponent}")
+            self.log(f"Assigned to Arena {self.room_id} as Player {self.player_id} vs {opponent}")
         
         elif msg_type == "competition_complete":
-            # Competition is over - we won!
+            # Competition is over
             champion = data.get("champion", {}).get("name", "Unknown")
-            self.log(f"🏆 Competition complete! Champion: {champion}")
-            self.log("Terminating...")
+            self.log(f"Competition complete! Champion: {champion}")
+            self.log("Exiting.")
             self.running = False
-            await self.ws.close()
-            raise SystemExit(0)
             
         elif msg_type == "waiting":
             self.log("Waiting for opponent...")
     
     def calculate_move(self) -> str | None:
-        """Calculate the best move using AI logic. Prioritizes survival."""
+        """Calculate the best move using AI logic.
+
+        Evaluates all safe moves and returns the direction with the highest
+        score. See the module docstring for a full description of the strategy.
+        """
         if not self.game_state:
             return None
             
@@ -320,9 +366,65 @@ class RobotPlayer:
         best_dir = None
         best_score = float('-inf')
         
+        # Predict opponent's next head position (assuming they don't change direction)
+        opponent_id = 3 - self.player_id
+        opponent = snakes.get(str(opponent_id))
+        opp_next = None
+        my_length = len(my_snake.get("body", []))
+        opp_length = 0
+        if opponent and opponent.get("body"):
+            opp_head = opponent["body"][0]
+            opp_dir = opponent.get("direction", "left")
+            dir_vec = {"up": (0, -1), "down": (0, 1),
+                       "left": (-1, 0), "right": (1, 0)}.get(opp_dir, (0, 0))
+            opp_next = (opp_head[0] + dir_vec[0], opp_head[1] + dir_vec[1])
+            opp_length = len(opponent.get("body", []))
+        
         for move in safe_moves:
             score = 0
             new_x, new_y = move["x"], move["y"]
+            
+            # Head-on collision logic based on difficulty level
+            #
+            # The bot predicts where the opponent's head will be next tick
+            # (assuming no direction change) and adjusts its score for that
+            # tile based on difficulty:
+            #
+            #   Level 1:    Always avoid the predicted tile.
+            #   Level 2-5:  Avoid with probability 90%-10% (interpolated),
+            #               otherwise prioritize the tile.
+            #   Level 6-9:  Prioritize the tile (if we're longer) with
+            #               probability 10%-90% (interpolated),
+            #               otherwise avoid it.
+            #   Level 10:   Prioritize the tile if we're longer,
+            #               otherwise avoid it.
+            if opp_next and (new_x, new_y) == opp_next:
+                collision_bonus = 2000   # reward for seeking head-on collision
+                collision_penalty = -5000  # penalty for risking head-on collision
+
+                if self.difficulty == 1:
+                    # Always avoid
+                    score += collision_penalty
+                elif self.difficulty <= 5:
+                    # Levels 2-5: avoid probability 90%->10%
+                    avoid_prob = 0.9 - (self.difficulty - 2) * 0.8 / 3
+                    if random.random() < avoid_prob:
+                        score += collision_penalty
+                    else:
+                        score += collision_bonus
+                elif self.difficulty <= 9:
+                    # Levels 6-9: prioritize if longer, with probability 10%->90%
+                    prioritize_prob = 0.1 + (self.difficulty - 6) * 0.8 / 3
+                    if my_length > opp_length and random.random() < prioritize_prob:
+                        score += collision_bonus
+                    else:
+                        score += collision_penalty
+                else:
+                    # Level 10: always prioritize if longer, otherwise avoid
+                    if my_length > opp_length:
+                        score += collision_bonus
+                    else:
+                        score += collision_penalty
             
             # Big bonus for capturing any food
             for food in foods:
@@ -360,13 +462,15 @@ async def main():
     parser = argparse.ArgumentParser(description="CopperHead Robot Player")
     parser.add_argument("--server", "-s", default="ws://localhost:8765/ws/",
                         help="Server WebSocket URL (default: ws://localhost:8765/ws/)")
+    parser.add_argument("--name", "-n", default=None,
+                        help="Bot display name (default: CopperBot L<difficulty>)")
     parser.add_argument("--difficulty", "-d", type=int, default=5,
                         help="AI difficulty 1-10 (default: 5)")
     parser.add_argument("--quiet", "-q", action="store_true",
                         help="Suppress output (for spawned bots)")
     args = parser.parse_args()
     
-    robot = RobotPlayer(args.server, args.difficulty, quiet=args.quiet)
+    robot = RobotPlayer(args.server, name=args.name, difficulty=args.difficulty, quiet=args.quiet)
     
     if not args.quiet:
         print("CopperHead Robot Player")
