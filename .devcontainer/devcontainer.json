@@ -1,6 +1,6 @@
 {
   "name": "CopperHead Server",
-  "image": "mcr.microsoft.com/devcontainers/python:3",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.13",
   "features": {
     "ghcr.io/devcontainers/features/copilot-cli:1": {}
   },
