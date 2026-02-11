@@ -9,7 +9,8 @@
   "portsAttributes": {
     "8765": {
       "label": "CopperHead Server",
-      "onAutoForward": "notify"
+      "onAutoForward": "notify",
+      "visibility": "public"
     }
   },
   "customizations": {
