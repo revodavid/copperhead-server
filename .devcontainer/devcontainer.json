@@ -4,13 +4,12 @@
   "features": {
     "ghcr.io/devcontainers/features/copilot-cli:1": {}
   },
-  "postCreateCommand": "pip install -r requirements.txt",
+  "postCreateCommand": "pip install -r requirements.txt && gh codespace ports visibility 8765:public -c $CODESPACE_NAME || true",
   "forwardPorts": [8765],
   "portsAttributes": {
     "8765": {
       "label": "CopperHead Server",
-      "onAutoForward": "notify",
-      "visibility": "public"
+      "onAutoForward": "notify"
     }
   },
   "customizations": {
