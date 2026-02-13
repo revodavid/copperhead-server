@@ -9,7 +9,7 @@ python main.py server-settings.json     # Start with specific config file
 python start.py                         # Codespaces launcher (shows banner, updates README)
 ```
 
-When launching game servers or bots, always launch in detached mode to avoid premature termination.
+IMPORTANT: When launching game servers or bots, **always** launch in detached mode to avoid premature termination.
 
 ## Testing
 

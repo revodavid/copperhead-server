@@ -2,6 +2,16 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [3.6.1] - 2026-02-13
+
+### Changed
+- Moved Copilot tutorial to "Quick Start" section at top of How-To-Build-Your-Own-Bot.md
+- Fixed CopperHead Client link in README to use GitHub URL instead of relative path
+- Clarified README parameter descriptions (removed hardcoded defaults)
+- Added note about running Copilot CLI in Codespaces or locally in Hack Tournament guide
+- Emphasized detached mode instruction in Copilot instructions
+- Apple fruit lifetime changed from 0 (infinite) to 300 ticks in default server settings
+
 ## [3.6.0] - 2026-02-11
 
 ### Added

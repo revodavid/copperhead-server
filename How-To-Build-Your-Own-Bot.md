@@ -4,6 +4,28 @@ We encourage developers to build their own AI-controlled CopperHead bots to play
 
 The server can launch the default CopperBot AI opponent, which is implemented in the provided `copperbot.py` file. Modify this file guided by the instructions below to create your own bot with different strategies.
 
+## Quick Start: Use GitHub Copilot to build a new bot
+
+1. Launch a CodeSpace on the [`copperhead-server`](https://github.com/your-username/copperhead-server) repository.
+1. When the CodeSpace is ready, click "Make Public" to open the server port
+1. Click the "Play Now" link to open the client
+1.  Back in Codespaces, Open the terminal, switch to the bash tab, and launch the GitHub Copilot CLI tool:
+   ```bash
+   copilot
+   ```
+1. Select "yes" when asked to trust the files in the current folder
+1. Enter the prompt:
+   ```
+   make me a new bot mybot.py based on copperbot.py
+   ```
+   When prompted select a strategy, or use followup prompts to adjust your bot's strategy
+1. Launch your bot in detached mode with the prompt below. (Detached mode prevents the bot from terminating prematurely.)
+   ```
+   launch mybot.py on server wss://turbo-disco-4qv9xqqv5cj56j-8765.app.github.dev/ws/ in detached mode
+   ```   
+1. In the client, your bot has joined the tournament. Click "Play" to test it yourself, or "Add bot" and observe.
+1. Refine your bot's strategy with additional prompts to Copilot CLI, and relaunch to test it against human or other bot players.
+
 ## Understanding CopperHead Bots
 
 CopperHead bots are Python programs that connect to the game server via WebSocket and autonomously play the Snake game. The bot architecture consists of three main components:
@@ -167,28 +189,6 @@ Watch your bot play and identify weaknesses. Common improvements:
 - Better trap detection (avoiding dead ends)
 - Opponent prediction (where will they go?)
 - Strategic food blocking
-
-## Tutorial: Use GitHub Copilot to build a bot
-
-1. Launch a CodeSpace on the [`copperhead-server`](https://github.com/your-username/copperhead-server) repository.
-1. When the CodeSpace is ready, click "Make Public" to open the server port
-1. Click the "Play Now" link to open the client
-1  Back in Codespaces, Open the terminal, switch to the bash tab, and launch the GitHub Copilot CLI tool:
-   ```bash
-   copilot
-   ```
-4. Select "yes" when asked to trust the files in the current folder
-5. Enter the prompt:
-   ```
-   make me a new bot mybot.py based on copperbot.py
-   ```
-   When prompted select a strategy, or use followup prompts to adjust your bot's strategy
-6. Launch your bot in detached mode with the prompt below. (Detached mode prevents the bot from terminating prematurely.)
-   ```
-   launch mybot.py on server wss://turbo-disco-4qv9xqqv5cj56j-8765.app.github.dev/ws/ in detached mode
-   ```   
-7. In the client, your bot has joined the tournament. Click "Play" to test it yourself, or "Add bot" and observe.
-8. Refine your bot's strategy with additional prompts to Copilot CLI, and relaunch to test it against human or other bot players.
 
 ## Bot API Reference
 

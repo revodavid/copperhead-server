@@ -1,6 +1,6 @@
 # CopperHead Server
 
-Version: 3.6.0
+Version: 3.6.1
 
 A server for a 2-player Snake game.The CopperHead server manages game state and multi-round knockout competitions, communicating with human and robot clients via WebSocket API.
 
@@ -26,7 +26,7 @@ A server for a 2-player Snake game.The CopperHead server manages game state and 
 
 CopperHead Server is responsible for managing game state, player matchmaking, and competition logic for a multi-round CopperHead tournament among human and/or AI players.
 
-CopperHead Server does not provide any user interface or graphics for playing the game. Human players use [CopperHead Client](../copperhead-client/) to play or observe games. Bots (automated players) connect via the WebSocket API.
+CopperHead Server does not provide any user interface or graphics for playing the game. Human players use [CopperHead Client](https://github.com/revodavid/copperhead-client) to play or observe games. Bots (automated players) connect via the WebSocket API.
 
 This server can launch basic bot opponents, but better strategies are possible. To **build your own bot opponent**, see [How-To-Build-Your-Own-Bot.md](How-To-Build-Your-Own-Bot.md) for instructions.
 
@@ -62,13 +62,13 @@ Instead of using a spec file, you may provide command-line options. These option
 
 * `--points-to-win`: Number of points required to win a match. Default is 5.
 
-* `--reset-delay`: Once a competition is complete, the server will wait this many seconds before resetting. At reset the competition restarts: active bots are terminated, new bots are launched according to the `--bots` setting, and the server begins accepting new players. Default is 30 seconds.
+* `--reset-delay`: Once a competition is complete, the server will wait this many seconds before resetting. At reset the competition restarts: active bots are terminated, new bots are launched according to the `--bots` setting, and the server begins accepting new players. 
 
-* `--grid-size`: Size of the game grid as WIDTHxHEIGHT. Default is 30x20.
+* `--grid-size`: Size of the game grid as WIDTHxHEIGHT. 
 
-* `--speed`: The tick rate of the game in seconds per frame. The default (0.15 seconds) is suitable for human players. Lower values increase game speed and difficulty.
+* `--speed`: The tick rate of the game in seconds per frame. The default is suitable for human players. Lower values increase game speed.
 
-* `--bots`: Number of AI opponents to launch at server start. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels.
+* `--bots`: Number of AI opponents to launch at tournament start. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels.
 
 ### Bot Opponents
 

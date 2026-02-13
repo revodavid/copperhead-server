@@ -33,7 +33,7 @@ See [How-To-Build-Your-Own-Bot.md](How-To-Build-Your-Own-Bot.md) for detailed in
 You don't need to be an expert programmer to build a winning bot. AI coding assistants can do the heavy lifting:
 
 - [**GitHub Copilot**](https://github.com/features/copilot) works right in the GitHub web interface — no code editor required.
-- [**GitHub Copilot CLI**](https://github.com/features/copilot/cli/) can generate code from natural language prompts, even if you've never programmed before.
+- [**GitHub Copilot CLI**](https://github.com/features/copilot/cli/) can generate code from natural language prompts, even if you've never programmed before. You can run `copilot` from the terminal in Codespaces, or install it on your laptop and run it on the cloned repository.
 - [**GitHub Copilot in Visual Studio Code**](https://code.visualstudio.com/docs/editor/github-copilot) offers an enhanced coding experience with suggestions and autocompletion.
 - Use any AI assistant or IDE you like! See how your favorite tool fares in the competition.
 
