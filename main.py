@@ -560,51 +560,49 @@ class Competition:
         
         Returns (success, message) tuple.
         
-        Uses a lock to prevent concurrent calls (e.g. admin click + auto-start race).
+        Holds the competition lock for the entire operation to prevent
+        concurrent calls (e.g. admin click + auto-start race).
         """
         async with self._lock:
             if self.state != CompetitionState.WAITING_FOR_PLAYERS:
                 return False, "Competition is not in waiting state"
-            # Transition to IN_PROGRESS to prevent re-entry
-            self.state = CompetitionState.IN_PROGRESS
+            
+            required = self.required_players()
+            
+            # Count how many lobby players we have before spawning bots
+            lobby_count = len(lobby.get_players_for_tournament())
+            bots_needed = required - lobby_count
+            
+            # Spawn bots if needed BEFORE collecting lobby players
+            if bots_needed > 0:
+                logger.info(f"🤖 Auto-filling {bots_needed} slot(s) with CopperBots")
+                _spawn_bots_for_lobby(bots_needed)
+                # Wait for bots to connect to the lobby
+                # (up to 15s — Windows subprocess startup can be slow)
+                for _ in range(150):
+                    await asyncio.sleep(0.1)
+                    if len(lobby.get_players_for_tournament()) >= required:
+                        break
+            
+            # Now collect all lobby players (including newly-joined bots)
+            lobby_players = lobby.get_players_for_tournament()
+            
+            if len(lobby_players) < required:
+                return False, f"Not enough players ({len(lobby_players)}/{required}). Try again in a moment."
+            
+            # Register lobby players into the competition
+            for lp in lobby_players[:required]:
+                uid = self._generate_uid()
+                player = PlayerInfo(uid, lp.name, lp.websocket, is_bot=lp.is_bot)
+                self.players[uid] = player
+                # Store mapping so we can route messages from lobby websocket
+                lp._competition_uid = uid
+            
+            # Track which lobby players were used (for cleanup after tournament)
+            tournament_lobby_uids = {lp.uid for lp in lobby_players[:required]}
+            self._tournament_lobby_uids = tournament_lobby_uids
         
-        required = self.required_players()
-        
-        # Count how many lobby players we have before spawning bots
-        lobby_count = len(lobby.get_players_for_tournament())
-        bots_needed = required - lobby_count
-        
-        # Spawn bots if needed BEFORE collecting lobby players
-        if bots_needed > 0:
-            logger.info(f"🤖 Auto-filling {bots_needed} slot(s) with CopperBots")
-            _spawn_bots_for_lobby(bots_needed)
-            # Wait for bots to connect to the lobby
-            for _ in range(50):  # Wait up to 5 seconds
-                await asyncio.sleep(0.1)
-                if len(lobby.get_players_for_tournament()) >= required:
-                    break
-        
-        # Now collect all lobby players (including newly-joined bots)
-        lobby_players = lobby.get_players_for_tournament()
-        
-        if len(lobby_players) < required:
-            # Not enough players — revert state so start can be retried
-            self.state = CompetitionState.WAITING_FOR_PLAYERS
-            return False, f"Not enough players ({len(lobby_players)}/{required}). Try again in a moment."
-        
-        # Register lobby players into the competition
-        for lp in lobby_players[:required]:
-            uid = self._generate_uid()
-            player = PlayerInfo(uid, lp.name, lp.websocket, is_bot=lp.is_bot)
-            self.players[uid] = player
-            # Store mapping so we can route messages from lobby websocket
-            lp._competition_uid = uid
-        
-        # Track which lobby players were used (for cleanup after tournament)
-        tournament_lobby_uids = {lp.uid for lp in lobby_players[:required]}
-        self._tournament_lobby_uids = tournament_lobby_uids
-        
-        # Start the competition
+        # Start the competition (outside lock — _start_competition sets state)
         await self._start_competition()
         
         # Clean up lobby — remove players who entered the tournament
