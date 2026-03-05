@@ -70,14 +70,17 @@ Instead of using a spec file, you may provide command-line options. These option
 
 * `--bots`: Number of AI opponents to launch at tournament start. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels.
 
-### Lobby Mode
+### Lobby and Admin Mode
 
-By default, the server auto-starts a tournament once enough players have joined (`"auto_start": true`). If you want manual control over who plays and when the tournament begins, disable auto-start by setting `"auto_start": false` in `server-settings.json`.
+All players join via a **lobby** (waiting room) before entering the competition. An **administrator** manages the tournament using a special admin URL printed to the console at server startup.
 
-In lobby mode:
-1. Players connect via `/ws/join` and enter a **lobby** (waiting room) instead of being placed directly into a match.
-2. An **administrator** manages the tournament using a special admin URL printed to the console at server startup. The admin URL contains an auto-generated token for authentication.
-3. The admin can move players from the lobby into match slots, kick players, add CopperBots, and start the tournament when ready.
+The `auto_start` setting in `server-settings.json` controls how players are admitted:
+- **`"auto_start": true`** (default) — Players are automatically assigned to match slots as they join. The competition starts as soon as all slots are filled.
+- **`"auto_start": false`** — The admin manually assigns players to slots and starts the competition.
+
+In both modes:
+1. Players connect via `/ws/join` and enter the lobby.
+2. The admin can move players from the lobby into match slots, kick players, add CopperBots, and start the tournament when ready.
 4. When the tournament starts, any empty match slots are auto-filled from the lobby (in join order), then with CopperBots.
 
 Lobby mode is especially useful for [hosting Bot Hack Tournaments](How-To-Host-A-Bot-Hack-Tournament.md) where the host needs to coordinate when play begins.
@@ -121,9 +124,9 @@ For local servers, use: `ws://localhost:8765/ws`
 - `/ws/observe` - Observe active games
 - `/ws/{player_id}` - Legacy endpoint (player_id: 1 or 2)
 
-### HTTP Endpoints (Lobby Mode)
+### HTTP Endpoints (Lobby)
 
-These endpoints are only available when `auto_start` is `false` in `server-settings.json`. All endpoints except `GET /lobby` require the admin token for authentication.
+These endpoints are always available. All endpoints except `GET /lobby` require the admin token for authentication.
 
 - `GET /lobby` — Returns the current lobby state (public, no auth required)
 - `POST /lobby/kick?uid=X&admin_token=TOKEN` — Kick a player from the lobby

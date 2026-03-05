@@ -10,9 +10,12 @@ No player may join a competition after it begins. Players who disconnect during 
 
 ## Lobby Mode
 
-When `auto_start` is disabled (`false`) in `server-settings.json`, the server uses an admin-controlled lobby system instead of auto-starting the tournament when enough players join.
+All players join via a **lobby** before entering the competition. The `auto_start` setting controls admission:
 
-In lobby mode, players who connect via `/ws/join` enter a **lobby** (waiting room) rather than being placed directly into a match slot. An administrator uses the admin URL (displayed at server startup) to manage the lobby:
+- **`auto_start: true`** (default) — Players are automatically assigned to match slots as they join. The competition starts when all slots are filled.
+- **`auto_start: false`** — An administrator manually assigns players to slots and starts the competition.
+
+In both modes, the admin can manage the lobby via the admin URL displayed at server startup:
 
 - **Assign slots**: Move players from the lobby into match slots.
 - **Kick players**: Remove unwanted players from the lobby.
