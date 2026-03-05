@@ -1354,7 +1354,7 @@ class GameRoom:
         
         try:
             self.bot_process = subprocess.Popen(
-                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty), "--quiet"],
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty), "--quiet", "--skip-wait"],
                 cwd=script_dir
             )
             logger.info(f"🤖 [Room {self.room_id}] CopperBot L{difficulty} spawned (PID: {self.bot_process.pid})")
@@ -1730,11 +1730,11 @@ class RoomManager:
         try:
             # Spawn two bots with different difficulties for variety
             bot1 = subprocess.Popen(
-                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty1), "--quiet"],
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty1), "--quiet", "--skip-wait"],
                 cwd=script_dir
             )
             bot2 = subprocess.Popen(
-                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty2), "--quiet"],
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty2), "--quiet", "--skip-wait"],
                 cwd=script_dir
             )
             logger.info(f"🤖 Spawned bot-vs-bot match: CopperBot L{difficulty1} (PID: {bot1.pid}) vs CopperBot L{difficulty2} (PID: {bot2.pid})")
@@ -2601,7 +2601,7 @@ def spawn_initial_bots(count: int):
         difficulty = random.randint(1, 10)
         try:
             subprocess.Popen(
-                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty), "--quiet"],
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty), "--quiet", "--skip-wait"],
                 cwd=script_dir
             )
             logger.info(f"🤖 Spawned CopperBot L{difficulty} ({i+1}/{count})")
@@ -2631,7 +2631,7 @@ def _spawn_bots_for_lobby(count: int, difficulty: int = None):
         bot_difficulty = difficulty if difficulty is not None else random.randint(1, 10)
         try:
             subprocess.Popen(
-                [sys.executable, script_path, "--server", server_url, "--difficulty", str(bot_difficulty), "--quiet"],
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(bot_difficulty), "--quiet", "--skip-wait"],
                 cwd=script_dir
             )
             logger.info(f"🤖 Spawned CopperBot L{bot_difficulty} for lobby fill ({i+1}/{count})")

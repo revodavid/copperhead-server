@@ -57,11 +57,12 @@ from collections import deque
 class RobotPlayer:
     """Autonomous player that connects to CopperHead server and plays using AI."""
     
-    def __init__(self, server_url: str, name: str = None, difficulty: int = 5, quiet: bool = False):
+    def __init__(self, server_url: str, name: str = None, difficulty: int = 5, quiet: bool = False, skip_wait: bool = False):
         self.server_url = server_url
         self.name = name or f"CopperBot L{difficulty}"
         self.difficulty = max(1, min(10, difficulty))
         self.quiet = quiet
+        self.skip_wait = skip_wait  # Skip server reachability check (used when spawned by server)
         self.player_id = None
         self.game_state = None
         self.running = False
@@ -108,8 +109,9 @@ class RobotPlayer:
     
     async def connect(self):
         """Connect to the game server using auto-matchmaking."""
-        # Wait for competition to be open
-        await self.wait_for_open_competition()
+        # Wait for server to be reachable (skip if spawned by the server itself)
+        if not self.skip_wait:
+            await self.wait_for_open_competition()
         
         # Use the /join endpoint for auto-matchmaking
         base_url = self.server_url.rstrip("/")
@@ -492,9 +494,12 @@ async def main():
                         help="AI difficulty 1-10 (default: 5)")
     parser.add_argument("--quiet", "-q", action="store_true",
                         help="Suppress output (for spawned bots)")
+    parser.add_argument("--skip-wait", action="store_true",
+                        help="Skip server reachability check (used when spawned by server)")
     args = parser.parse_args()
     
-    robot = RobotPlayer(args.server, name=args.name, difficulty=args.difficulty, quiet=args.quiet)
+    robot = RobotPlayer(args.server, name=args.name, difficulty=args.difficulty,
+                        quiet=args.quiet, skip_wait=args.skip_wait)
     
     if not args.quiet:
         print("CopperHead Robot Player")
