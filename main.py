@@ -211,7 +211,8 @@ class Lobby:
         return [p for p in self.players.values() if p.uid not in assigned]
     
     async def join(self, name: str, websocket: WebSocket) -> Optional[PlayerInfo]:
-        """Add a player to the lobby. Returns PlayerInfo if accepted."""
+        """Add a player to the lobby. Returns PlayerInfo if accepted.
+        When auto_start is on, also automatically assigns them to a slot if available."""
         async with self._lock:
             uid = self._generate_uid()
             is_bot = name.startswith("CopperBot")
@@ -220,7 +221,20 @@ class Lobby:
             self._join_order.append(uid)
             
             logger.info(f"📝 {name} ({uid}) joined lobby ({len(self.players)} in lobby)")
+            
+            # Auto-admit to a slot when auto_start is enabled
+            if config.auto_start and self.open_slots() > 0:
+                self.slot_assignments.append(uid)
+                logger.info(f"✅ Auto-admitted {name} ({uid}) to slot ({len(self.slot_assignments)}/{self.max_slots()})")
+            
             await self._broadcast_lobby_update()
+            
+            # Auto-start competition when all slots are filled and auto_start is on
+            if config.auto_start and self.open_slots() <= 0:
+                logger.info("🚀 All slots filled with auto_start ON — starting competition")
+                import asyncio
+                asyncio.create_task(competition.start_from_lobby())
+            
             return player
     
     async def leave(self, uid: str):
