@@ -32,7 +32,7 @@ class ServerConfig:
     grid_height: int = 20
     tick_rate: float = 0.15
     bots: int = 0
-    lobby_mode: bool = False  # When True, admin controls tournament start via lobby
+    auto_start: bool = True  # When True, competition starts automatically when all slots are filled
     # Fruit settings
     fruit_warning: int = 20  # Ticks before expiry when lifetime is reported to client
     max_fruits: int = 1  # Max fruits on screen at once
@@ -79,8 +79,8 @@ async def startup_event():
     logger.info("🐍 CopperHead Server started")
     logger.info(f"   Grid: {config.grid_width}x{config.grid_height}, Tick rate: {config.tick_rate}s")
     logger.info(f"   Arenas: {config.arenas}, Points to win: {config.points_to_win}")
-    if config.lobby_mode:
-        logger.info(f"   Lobby mode: ON (admin token: {admin_token})")
+    if not config.auto_start:
+        logger.info(f"   Auto-start: OFF (admin token: {admin_token})")
     
     # Detect Codespaces environment
     codespace_name = os.environ.get("CODESPACE_NAME")
@@ -116,7 +116,7 @@ async def startup_event():
     import urllib.parse
     client_base = "https://revodavid.github.io/copperhead-client/"
     client_url = f"{client_base}?server={urllib.parse.quote(ws_url, safe='')}"
-    admin_client_url = f"{client_url}&admin={admin_token}" if config.lobby_mode else None
+    admin_client_url = f"{client_url}&admin={admin_token}" if not config.auto_start else None
     
     # Show URL reminder at the bottom so it's visible after all startup messages
     logger.info("")
@@ -176,7 +176,7 @@ admin_token: str = secrets.token_hex(8)  # 16-character hex string
 class Lobby:
     """Manages players waiting to join a competition.
     
-    When lobby_mode is enabled, players join the lobby first instead of going
+    When auto_start is disabled, players join the lobby first instead of going
     directly into the competition. An administrator controls which players
     get assigned to match slots and when the tournament starts.
     
@@ -343,7 +343,7 @@ class Lobby:
         """Get current lobby state for API responses."""
         assigned_set = set(self.slot_assignments)
         return {
-            "lobby_mode": config.lobby_mode,
+            "auto_start": config.auto_start,
             "players": [
                 {"uid": p.uid, "name": p.name, "is_bot": p.is_bot, "in_slot": p.uid in assigned_set}
                 for p in self.players.values()
@@ -414,13 +414,13 @@ class Competition:
         self.reset_start_time = None
         self._next_uid = 1
         
-        if config.lobby_mode:
-            logger.info(f"🏆 Lobby mode: waiting for admin to start tournament ({config.arenas * 2} slots)")
+        if not config.auto_start:
+            logger.info(f"🏆 Waiting for admin to start tournament ({config.arenas * 2} slots)")
         else:
             logger.info(f"🏆 Competition waiting for {config.arenas * 2} players")
         
         # Spawn bots for the new competition (only in auto-start mode)
-        if not config.lobby_mode and config.bots > 0:
+        if config.auto_start and config.bots > 0:
             import threading
             def delayed_bot_spawn():
                 import time
@@ -433,7 +433,7 @@ class Competition:
     
     async def register_player(self, name: str, websocket: WebSocket) -> Optional[PlayerInfo]:
         """Register a player for the competition. Returns PlayerInfo if accepted.
-        In lobby_mode, players join via the Lobby instead of calling this directly."""
+        When auto_start is off, players join via the Lobby instead of calling this directly."""
         async with self._lock:
             if self.state != CompetitionState.WAITING_FOR_PLAYERS:
                 return None
@@ -451,8 +451,8 @@ class Competition:
             # Broadcast updated lobby status
             await self._broadcast_lobby_status()
             
-            # Auto-start when full (only in non-lobby mode)
-            if not config.lobby_mode and len(self.players) >= self.required_players():
+            # Auto-start when full (only in auto-start mode)
+            if config.auto_start and len(self.players) >= self.required_players():
                 await self._start_competition()
             
             return player
@@ -1757,7 +1757,7 @@ class RoomManager:
             "total_players": total_players,
             "open_slots": open_slots,
             "competition_state": competition.state.value,
-            "lobby_mode": config.lobby_mode,
+            "auto_start": config.auto_start,
             "total_rooms": len(self.rooms),
             "speed": config.tick_rate,
             "grid_width": config.grid_width,
@@ -1787,11 +1787,11 @@ room_manager = RoomManager()
 
 @app.websocket("/ws/join")
 async def join_game(websocket: WebSocket):
-    """Auto-matchmaking: join a competition slot (or lobby in lobby_mode)."""
+    """Auto-matchmaking: join a competition slot (or lobby when auto_start is off)."""
     await websocket.accept()
     
-    # In lobby mode, players join the lobby instead of going directly to rooms
-    if config.lobby_mode:
+    # When auto_start is off, players join the lobby instead of going directly to rooms
+    if not config.auto_start:
         await _handle_lobby_join(websocket)
         return
     
@@ -1860,7 +1860,7 @@ async def join_game(websocket: WebSocket):
 
 
 async def _handle_lobby_join(websocket: WebSocket):
-    """Handle a player joining via the lobby in lobby_mode.
+    """Handle a player joining via the lobby when auto_start is off.
     
     The player stays connected in the lobby, receiving lobby_update messages,
     until the admin starts the tournament (if they're selected) or they leave.
@@ -2241,14 +2241,14 @@ async def add_bot(difficulty: int = None):
 
 
 # ============================================================================
-# Lobby Admin Endpoints (only active when lobby_mode is enabled)
+# Lobby Admin Endpoints (only active when auto_start is off)
 # ============================================================================
 
 
 def _require_lobby_mode():
-    """Raise 400 if lobby mode is not enabled."""
-    if not config.lobby_mode:
-        raise HTTPException(status_code=400, detail="Lobby mode is not enabled. Set lobby_mode: true in server-settings.json")
+    """Raise 400 if lobby mode is not enabled (auto_start must be off)."""
+    if config.auto_start:
+        raise HTTPException(status_code=400, detail="Lobby mode is not enabled. Set auto_start: false in server-settings.json")
 
 
 def _require_admin(request: Request):
@@ -2468,8 +2468,8 @@ def apply_spec_to_config(spec: dict):
         config.tick_rate = spec["speed"]
     if "bots" in spec:
         config.bots = spec["bots"]
-    if "lobby_mode" in spec:
-        config.lobby_mode = spec["lobby_mode"]
+    if "auto_start" in spec:
+        config.auto_start = spec["auto_start"]
     
     # Parse grid size
     if "grid_size" in spec:
@@ -2569,8 +2569,8 @@ def apply_config(args):
     config.tick_rate = args.speed if args.speed is not None else spec.get("speed", 0.15)
     config.bots = args.bots if args.bots is not None else spec.get("bots", 0)
     
-    # Lobby mode: only from spec file (no CLI arg)
-    config.lobby_mode = spec.get("lobby_mode", False)
+    # Auto-start: only from spec file (no CLI arg)
+    config.auto_start = spec.get("auto_start", True)
     
     # Parse grid size
     grid_size = args.grid_size if args.grid_size is not None else spec.get("grid_size", "30x20")

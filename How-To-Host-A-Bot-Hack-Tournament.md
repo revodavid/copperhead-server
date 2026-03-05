@@ -26,7 +26,7 @@ The CopperHead server provides many configurable settings for the game rules: nu
 
 As host, fork the [copperhead-server](https://github.com/revodavid/copperhead-server) repository to your own GitHub account. Edit the [`server-settings.json`](server-settings.json) file to define the rules for your game. (Leave the `arenas` setting at 1 for now - you will increase it to accommodate all competing teams just before the final tournament.)
 
-**Recommended: Enable lobby mode** by setting `"lobby_mode": true` in `server-settings.json`. Lobby mode gives you full control over when the tournament starts, so players and bots can connect at their own pace without the tournament starting prematurely. See [Lobby Mode](competition-logic.md#lobby-mode) for details.
+**Recommended: Disable auto-start** by setting `"auto_start": false` in `server-settings.json`. This gives you full control over when the tournament starts, so players and bots can connect at their own pace without the tournament starting prematurely. See [Lobby Mode](competition-logic.md#lobby-mode) for details.
 
 Follow the instructions in the [CopperHead Server README](https://github.com/revodavid/copperhead-server) to launch the server in GitHub Codespaces. Launch the CopperHead client as instructed to launch the game and show it on the big screen if available. This server will serve as a public arena for all teams to connect to during the hacking period and the final tournament.
 
@@ -79,7 +79,7 @@ When the hacking period ends, it's time for the final tournament! At this point,
 
 ### Option A: Using Lobby Mode (Recommended)
 
-If you enabled `lobby_mode` in Step 2:
+If you set `auto_start` to `false` in Step 2:
 
 1. As host, increase the `arenas` setting in your server's `server-settings.json` to half the number of participating teams (rounded up).
 

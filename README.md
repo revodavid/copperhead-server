@@ -72,7 +72,7 @@ Instead of using a spec file, you may provide command-line options. These option
 
 ### Lobby Mode
 
-By default, the server auto-starts a tournament once enough players have joined. If you want manual control over who plays and when the tournament begins, enable **lobby mode** by setting `"lobby_mode": true` in `server-settings.json`.
+By default, the server auto-starts a tournament once enough players have joined (`"auto_start": true`). If you want manual control over who plays and when the tournament begins, disable auto-start by setting `"auto_start": false` in `server-settings.json`.
 
 In lobby mode:
 1. Players connect via `/ws/join` and enter a **lobby** (waiting room) instead of being placed directly into a match.
@@ -123,7 +123,7 @@ For local servers, use: `ws://localhost:8765/ws`
 
 ### HTTP Endpoints (Lobby Mode)
 
-These endpoints are only available when `lobby_mode` is enabled in `server-settings.json`. All endpoints except `GET /lobby` require the admin token for authentication.
+These endpoints are only available when `auto_start` is `false` in `server-settings.json`. All endpoints except `GET /lobby` require the admin token for authentication.
 
 - `GET /lobby` — Returns the current lobby state (public, no auth required)
 - `POST /lobby/kick?uid=X&admin_token=TOKEN` — Kick a player from the lobby
