@@ -5,7 +5,12 @@ All notable changes to the CopperHead Server are documented in this file.
 ## [3.7.0] - 2026-03-05
 
 ### Added
-- Lobby mode (opt-in via `auto_start: false` setting) for admin-controlled tournament management
+- Tri-state `auto_start` setting: `"always"`, `"admit_only"` (new default), or `"never"`
+  - `"always"`: auto-admit players and auto-start when slots fill (unattended mode)
+  - `"admit_only"`: auto-admit players, admin clicks Start Competition
+  - `"never"`: admin admits players and starts manually
+  - Backward compatible: `true` maps to `"always"`, `false` maps to `"never"`
+- Lobby system for admin-controlled tournament management
 - Admin token authentication for lobby endpoints
 - HTTP endpoints for lobby management (kick, add_to_slot, add_bot, start_tournament, etc.)
 - WebSocket lobby messages (lobby_update, lobby_joined, lobby_left, lobby_kicked)

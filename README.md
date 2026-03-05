@@ -74,9 +74,10 @@ Instead of using a spec file, you may provide command-line options. These option
 
 All players join via a **lobby** (waiting room) before entering the competition. An **administrator** manages the tournament using a special admin URL printed to the console at server startup.
 
-The `auto_start` setting in `server-settings.json` controls how players are admitted:
-- **`"auto_start": true`** (default) — Players are automatically assigned to match slots as they join. The competition starts as soon as all slots are filled.
-- **`"auto_start": false`** — The admin manually assigns players to slots and starts the competition.
+The `auto_start` setting in `server-settings.json` controls how players are admitted and competitions start:
+- **`"always"`** — Players are automatically assigned to match slots as they join. The competition starts as soon as all slots are filled. Ideal for unattended servers.
+- **`"admit_only"`** (default) — Players are automatically assigned to match slots, but an admin must click **Start Competition** to begin. After each competition, the admin must start again.
+- **`"never"`** — The admin manually assigns players to slots (via **Admit**) and starts the competition. Full manual control.
 
 In both modes:
 1. Players connect via `/ws/join` and enter the lobby.

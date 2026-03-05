@@ -10,10 +10,11 @@ No player may join a competition after it begins. Players who disconnect during 
 
 ## Lobby Mode
 
-All players join via a **lobby** before entering the competition. The `auto_start` setting controls admission:
+All players join via a **lobby** before entering the competition. The `auto_start` setting controls admission and starting:
 
-- **`auto_start: true`** (default) — Players are automatically assigned to match slots as they join. The competition starts when all slots are filled.
-- **`auto_start: false`** — An administrator manually assigns players to slots and starts the competition.
+- **`"always"`** — Players are automatically assigned to match slots as they join. The competition starts when all slots are filled. Ideal for unattended servers.
+- **`"admit_only"`** (default) — Players are automatically assigned to match slots, but an administrator must click Start Competition to begin. After each competition resets, the admin must start again.
+- **`"never"`** — An administrator manually assigns players to slots (via Admit) and starts the competition. Full manual control.
 
 In both modes, the admin can manage the lobby via the admin URL displayed at server startup:
 
