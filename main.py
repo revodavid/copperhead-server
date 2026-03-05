@@ -79,8 +79,8 @@ async def startup_event():
     logger.info("🐍 CopperHead Server started")
     logger.info(f"   Grid: {config.grid_width}x{config.grid_height}, Tick rate: {config.tick_rate}s")
     logger.info(f"   Arenas: {config.arenas}, Points to win: {config.points_to_win}")
-    if not config.auto_start:
-        logger.info(f"   Auto-start: OFF (admin token: {admin_token})")
+    logger.info(f"   Auto-start: {'ON' if config.auto_start else 'OFF'}")
+    logger.info(f"   Admin token: {admin_token}")
     
     # Detect Codespaces environment
     codespace_name = os.environ.get("CODESPACE_NAME")
@@ -112,20 +112,17 @@ async def startup_event():
     # Initialize competition
     await competition.start_waiting()
     
-    # Build client URL with server parameter (and admin token in lobby mode)
+    # Build client URL with server parameter and admin token
     import urllib.parse
     client_base = "https://revodavid.github.io/copperhead-client/"
     client_url = f"{client_base}?server={urllib.parse.quote(ws_url, safe='')}"
-    admin_client_url = f"{client_url}&admin={admin_token}" if not config.auto_start else None
+    admin_client_url = f"{client_url}&admin={admin_token}"
     
     # Show URL reminder at the bottom so it's visible after all startup messages
     logger.info("")
     logger.info(f"📡 Server URL: {ws_url}")
-    if admin_client_url:
-        logger.info(f"🎮 Play now (player): {client_url}")
-        logger.info(f"🔑 Admin console: {admin_client_url}")
-    else:
-        logger.info(f"🎮 Play now: {client_url}")
+    logger.info(f"🎮 Play now (player): {client_url}")
+    logger.info(f"🔑 Admin console: {admin_client_url}")
     if codespace_name:
         logger.info(f"⚠️  Remember to make port 8765 PUBLIC in the Ports tab!")
     
@@ -289,6 +286,13 @@ class Lobby:
             player = self.players[uid]
             logger.info(f"✅ {player.name} ({uid}) added to match slot ({len(self.slot_assignments)}/{self.max_slots()})")
             await self._broadcast_lobby_update()
+            
+            # Auto-start competition when all slots are filled and auto_start is on
+            if config.auto_start and self.open_slots() <= 0:
+                logger.info("🚀 All slots filled with auto_start ON — starting competition")
+                import asyncio
+                asyncio.create_task(competition.start_from_lobby())
+            
             return True
     
     async def remove_from_slot(self, uid: str) -> bool:
@@ -414,13 +418,13 @@ class Competition:
         self.reset_start_time = None
         self._next_uid = 1
         
-        if not config.auto_start:
-            logger.info(f"🏆 Waiting for admin to start tournament ({config.arenas * 2} slots)")
+        if config.auto_start:
+            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (auto-start ON)")
         else:
-            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players")
+            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (admin starts)")
         
-        # Spawn bots for the new competition (only in auto-start mode)
-        if config.auto_start and config.bots > 0:
+        # Spawn initial bots into the lobby if configured
+        if config.bots > 0:
             import threading
             def delayed_bot_spawn():
                 import time
@@ -1787,80 +1791,15 @@ room_manager = RoomManager()
 
 @app.websocket("/ws/join")
 async def join_game(websocket: WebSocket):
-    """Auto-matchmaking: join a competition slot (or lobby when auto_start is off)."""
+    """Auto-matchmaking: players always join the lobby first."""
     await websocket.accept()
     
-    # When auto_start is off, players join the lobby instead of going directly to rooms
-    if not config.auto_start:
-        await _handle_lobby_join(websocket)
-        return
-    
-    # --- Standard (non-lobby) flow below ---
-    
-    # Check if competition is accepting players
-    if competition.state != CompetitionState.WAITING_FOR_PLAYERS:
-        await websocket.send_json({
-            "type": "error",
-            "message": "Competition in progress - cannot join"
-        })
-        await websocket.close(code=4003, reason="Competition in progress")
-        return
-    
-    # Check if there are open slots
-    total_players = sum(len(room.connections) for room in room_manager.rooms.values())
-    max_players = config.arenas * 2
-    if total_players >= max_players:
-        await websocket.send_json({
-            "type": "error", 
-            "message": "All slots filled"
-        })
-        await websocket.close(code=4002, reason="Server full")
-        return
-    
-    # Find or create a room for this player
-    room, player_id = await room_manager.find_or_create_room()
-    
-    if not room:
-        await websocket.close(code=4002, reason="Server full - no room available")
-        return
-    
-    # Generate a UID for this player and register with competition
-    uid = f"player_{room.room_id}_{player_id}_{id(websocket)}"
-    room.player_uids[player_id] = uid
-    
-    await room.connect_player(player_id, websocket)
-    
-    # Send player their assignment
-    await websocket.send_json({
-        "type": "joined",
-        "room_id": room.room_id,
-        "player_id": player_id
-    })
-    
-    try:
-        while True:
-            data = await websocket.receive_json()
-            # Get current room from player's competition info (may change between rounds)
-            player_info = competition.players.get(uid)
-            current_room = player_info.current_room if player_info else room
-            if current_room:
-                # Use the player's current player_id (may change between rounds)
-                current_player_id = player_info.current_player_id if player_info else player_id
-                await current_room.handle_message(current_player_id, data)
-    except WebSocketDisconnect:
-        # Get current room for disconnect handling
-        player_info = competition.players.get(uid)
-        current_room = player_info.current_room if player_info else room
-        if current_room:
-            current_player_id = player_info.current_player_id if player_info else player_id
-            await current_room.disconnect_player(current_player_id)
-        # Also notify competition of disconnect (handles Bye player forfeits)
-        await competition.unregister_player(uid)
-        room_manager.cleanup_empty_rooms()
+    # All players join via the lobby
+    await _handle_lobby_join(websocket)
 
 
 async def _handle_lobby_join(websocket: WebSocket):
-    """Handle a player joining via the lobby when auto_start is off.
+    """Handle a player joining via the lobby.
     
     The player stays connected in the lobby, receiving lobby_update messages,
     until the admin starts the tournament (if they're selected) or they leave.
@@ -2241,14 +2180,8 @@ async def add_bot(difficulty: int = None):
 
 
 # ============================================================================
-# Lobby Admin Endpoints (only active when auto_start is off)
+# Lobby Admin Endpoints (always available)
 # ============================================================================
-
-
-def _require_lobby_mode():
-    """Raise 400 if lobby mode is not enabled (auto_start must be off)."""
-    if config.auto_start:
-        raise HTTPException(status_code=400, detail="Lobby mode is not enabled. Set auto_start: false in server-settings.json")
 
 
 def _require_admin(request: Request):
@@ -2261,14 +2194,12 @@ def _require_admin(request: Request):
 @app.get("/lobby")
 async def get_lobby():
     """Get current lobby state. Available to all clients."""
-    _require_lobby_mode()
     return lobby.get_status()
 
 
 @app.post("/lobby/kick")
 async def lobby_kick(uid: str, request: Request):
     """Admin: kick a player from the lobby."""
-    _require_lobby_mode()
     _require_admin(request)
     
     success = await lobby.kick(uid)
@@ -2280,7 +2211,6 @@ async def lobby_kick(uid: str, request: Request):
 @app.post("/lobby/add_to_slot")
 async def lobby_add_to_slot(uid: str, request: Request):
     """Admin: move a lobby player into the next open match slot."""
-    _require_lobby_mode()
     _require_admin(request)
     
     success = await lobby.add_to_slot(uid)
@@ -2292,7 +2222,6 @@ async def lobby_add_to_slot(uid: str, request: Request):
 @app.post("/lobby/remove_from_slot")
 async def lobby_remove_from_slot(uid: str, request: Request):
     """Admin: remove a player from their match slot (back to waiting)."""
-    _require_lobby_mode()
     _require_admin(request)
     
     success = await lobby.remove_from_slot(uid)
@@ -2304,7 +2233,6 @@ async def lobby_remove_from_slot(uid: str, request: Request):
 @app.post("/lobby/add_bot")
 async def lobby_add_bot(request: Request, difficulty: int = None):
     """Admin: add a CopperBot to the lobby."""
-    _require_lobby_mode()
     _require_admin(request)
     
     if difficulty is None or difficulty < 1 or difficulty > 10:
@@ -2319,7 +2247,6 @@ async def lobby_add_bot(request: Request, difficulty: int = None):
 async def lobby_admin_play(request: Request, name: str = "Admin"):
     """Admin: join the competition directly, skipping the lobby.
     Registers the admin as a player in the competition (not in the lobby)."""
-    _require_lobby_mode()
     _require_admin(request)
     
     if competition.state != CompetitionState.WAITING_FOR_PLAYERS:
@@ -2333,7 +2260,6 @@ async def lobby_admin_play(request: Request, name: str = "Admin"):
 @app.post("/lobby/play_bot")
 async def lobby_admin_play_bot(request: Request, name: str = "Admin"):
     """Admin: quick start a 1v1 with a CopperBot (single-arena only)."""
-    _require_lobby_mode()
     _require_admin(request)
     
     if config.arenas != 1:
@@ -2354,7 +2280,6 @@ async def start_tournament(request: Request):
     
     Fills slots in order: assigned players → lobby waitlist → CopperBots.
     """
-    _require_lobby_mode()
     _require_admin(request)
     
     success, message = await competition.start_from_lobby()
