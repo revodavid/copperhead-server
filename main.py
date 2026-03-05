@@ -555,8 +555,12 @@ class Competition:
         
         Returns (success, message) tuple.
         """
-        if self.state != CompetitionState.WAITING_FOR_PLAYERS:
-            return False, "Competition is not in waiting state"
+        async with self._lock:
+            if self.state != CompetitionState.WAITING_FOR_PLAYERS:
+                return False, "Competition is not in waiting state"
+            
+            # Mark as starting to prevent double-start race
+            self.state = CompetitionState.IN_PROGRESS
         
         required = self.required_players()
         
@@ -587,6 +591,8 @@ class Competition:
                     break
         
         if len(self.players) < required:
+            # Revert state so start can be retried
+            self.state = CompetitionState.WAITING_FOR_PLAYERS
             return False, f"Not enough players ({len(self.players)}/{required}). Try again in a moment."
         
         # Start the competition
