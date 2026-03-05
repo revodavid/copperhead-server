@@ -78,7 +78,12 @@ class RobotPlayer:
             print(msg.encode("ascii", errors="replace").decode("ascii"))
         
     async def wait_for_open_competition(self):
-        """Wait until a competition is accepting players."""
+        """Wait until the server is reachable, then return.
+        
+        Bots always join the lobby regardless of competition state —
+        the lobby is always available and the bot will wait there until
+        the next competition starts.
+        """
         import aiohttp
         
         base_url = self.server_url.rstrip("/")
@@ -90,15 +95,10 @@ class RobotPlayer:
         while True:
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{http_url}/competition") as resp:
+                    async with session.get(f"{http_url}/status") as resp:
                         if resp.status == 200:
-                            data = await resp.json()
-                            state = data.get("state", "")
-                            if state == "waiting_for_players":
-                                self.log("Competition open - joining...")
-                                return True
-                            else:
-                                self.log(f"Competition in progress ({state}), waiting...")
+                            self.log("Server reachable - joining lobby...")
+                            return True
                         else:
                             self.log(f"Server not ready (status {resp.status}), waiting...")
             except Exception as e:
