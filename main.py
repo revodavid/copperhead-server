@@ -222,15 +222,16 @@ class Lobby:
             
             logger.info(f"📝 {name} ({uid}) joined lobby ({len(self.players)} in lobby)")
             
-            # Auto-admit to a slot when auto_start is enabled
-            if config.auto_start and self.open_slots() > 0:
+            # Auto-admit to a slot when auto_start is enabled and competition is waiting
+            waiting = competition.state == CompetitionState.WAITING_FOR_PLAYERS
+            if config.auto_start and waiting and self.open_slots() > 0:
                 self.slot_assignments.append(uid)
                 logger.info(f"✅ Auto-admitted {name} ({uid}) to slot ({len(self.slot_assignments)}/{self.max_slots()})")
             
             await self._broadcast_lobby_update()
             
             # Auto-start competition when all slots are filled and auto_start is on
-            if config.auto_start and self.open_slots() <= 0:
+            if config.auto_start and waiting and self.open_slots() <= 0:
                 logger.info("🚀 All slots filled with auto_start ON — starting competition")
                 import asyncio
                 asyncio.create_task(competition.start_from_lobby())
@@ -302,7 +303,8 @@ class Lobby:
             await self._broadcast_lobby_update()
             
             # Auto-start competition when all slots are filled and auto_start is on
-            if config.auto_start and self.open_slots() <= 0:
+            waiting = competition.state == CompetitionState.WAITING_FOR_PLAYERS
+            if config.auto_start and waiting and self.open_slots() <= 0:
                 logger.info("🚀 All slots filled with auto_start ON — starting competition")
                 import asyncio
                 asyncio.create_task(competition.start_from_lobby())
@@ -523,6 +525,13 @@ class Competition:
         # Randomly pair players for round 1
         uids = list(self.players.keys())
         random.shuffle(uids)
+        
+        # Handle odd number of players — last player gets a bye
+        if len(uids) % 2 != 0:
+            self.current_bye_uid = uids.pop()
+            bye_player = self.players[self.current_bye_uid]
+            logger.info(f"🎫 {bye_player.name} gets a bye in Round 1")
+        
         pairings = [(uids[i], uids[i + 1]) for i in range(0, len(uids), 2)]
         self.rounds.append(pairings)
         self.match_results.append([])
