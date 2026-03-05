@@ -2,6 +2,14 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [3.7.0] - 2026-03-05
+
+### Added
+- Lobby mode (opt-in via `lobby_mode` setting) for admin-controlled tournament management
+- Admin token authentication for lobby endpoints
+- HTTP endpoints for lobby management (kick, add_to_slot, add_bot, start_tournament, etc.)
+- WebSocket lobby messages (lobby_update, lobby_joined, lobby_left, lobby_kicked)
+
 ## [3.6.1] - 2026-02-13
 
 ### Changed
