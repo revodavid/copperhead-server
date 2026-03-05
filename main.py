@@ -2311,8 +2311,8 @@ async def lobby_add_bot(request: Request, difficulty: int = None):
         difficulty = random.randint(1, 10)
     
     # Spawn a bot that will connect via /ws/join and enter the lobby
-    _spawn_bots_for_lobby(1)
-    return {"success": True, "message": f"CopperBot spawned (will join lobby shortly)"}
+    _spawn_bots_for_lobby(1, difficulty=difficulty)
+    return {"success": True, "message": f"CopperBot L{difficulty} spawned (will join lobby shortly)"}
 
 
 @app.post("/lobby/play")
@@ -2624,9 +2624,10 @@ def spawn_initial_bots(count: int):
             logger.error(f"❌ Failed to spawn bot: {e}")
 
 
-def _spawn_bots_for_lobby(count: int):
+def _spawn_bots_for_lobby(count: int, difficulty: int = None):
     """Spawn CopperBots to fill empty tournament slots in lobby mode.
-    Uses the /ws/join endpoint so bots register through normal flow."""
+    Uses the /ws/join endpoint so bots register through normal flow.
+    If difficulty is provided, all bots use that level; otherwise random."""
     if count <= 0:
         return
     
@@ -2642,13 +2643,13 @@ def _spawn_bots_for_lobby(count: int):
         server_url = "ws://localhost:8765/ws/"
     
     for i in range(count):
-        difficulty = random.randint(1, 10)
+        bot_difficulty = difficulty if difficulty is not None else random.randint(1, 10)
         try:
             subprocess.Popen(
-                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty), "--quiet"],
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(bot_difficulty), "--quiet"],
                 cwd=script_dir
             )
-            logger.info(f"🤖 Spawned CopperBot L{difficulty} for lobby fill ({i+1}/{count})")
+            logger.info(f"🤖 Spawned CopperBot L{bot_difficulty} for lobby fill ({i+1}/{count})")
         except Exception as e:
             logger.error(f"❌ Failed to spawn bot for lobby: {e}")
 

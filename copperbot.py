@@ -134,6 +134,14 @@ class RobotPlayer:
             
         self.running = True
         
+        # Send ready message immediately so the server knows our name
+        # (In lobby mode, the server waits for this before adding us to the lobby)
+        await self.ws.send(json.dumps({
+            "action": "ready",
+            "mode": "two_player",
+            "name": self.name
+        }))
+        
         try:
             while self.running:
                 message = await self.ws.recv()
@@ -163,18 +171,34 @@ class RobotPlayer:
             self.running = False
             return
         
+        # --- Lobby mode messages ---
+        
+        if msg_type == "lobby_joined":
+            # We've been added to the lobby — wait for tournament to start
+            self.log(f"Joined lobby as '{data.get('name', self.name)}'")
+            return
+        
+        if msg_type == "lobby_update":
+            # Lobby state changed — nothing for the bot to do, just wait
+            return
+        
+        if msg_type == "lobby_left":
+            self.log("Left the lobby.")
+            self.running = False
+            return
+        
+        if msg_type == "lobby_kicked":
+            self.log("Kicked from lobby!")
+            self.running = False
+            return
+        
+        # --- Standard game messages ---
+        
         if msg_type == "joined":
-            # Server assigned us a player ID and room
+            # Server assigned us a player ID and room (non-lobby mode)
             self.player_id = data.get("player_id")
             self.room_id = data.get("room_id")
             self.log(f"Joined Room {self.room_id} as Player {self.player_id}")
-            
-            # Send ready message
-            await self.ws.send(json.dumps({
-                "action": "ready",
-                "mode": "two_player",
-                "name": self.name
-            }))
             self.log(f"Ready! Playing as '{self.name}' at difficulty {self.difficulty}")
         
         elif msg_type == "state":
