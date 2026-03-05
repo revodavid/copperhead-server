@@ -1899,9 +1899,15 @@ async def _handle_lobby_join(websocket: WebSocket):
             # Remove from lobby if still there
             if player_info.uid in lobby.players:
                 await lobby.leave(player_info.uid)
-            # Also handle competition disconnect if in tournament
+            # Handle competition disconnect if in tournament
             comp_uid = getattr(player_info, '_competition_uid', None)
             if comp_uid:
+                # Disconnect from the game room first (triggers forfeit)
+                comp_player = competition.players.get(comp_uid)
+                if comp_player and comp_player.current_room:
+                    await comp_player.current_room.disconnect_player(
+                        comp_player.current_player_id
+                    )
                 await competition.unregister_player(comp_uid)
                 room_manager.cleanup_empty_rooms()
 
