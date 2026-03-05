@@ -170,7 +170,7 @@ class MatchResult:
 
 
 # Admin token for lobby management — generated fresh on each server start
-admin_token: str = secrets.token_hex(4)  # 8-character hex string
+admin_token: str = secrets.token_hex(8)  # 16-character hex string
 
 
 class Lobby:
@@ -2254,7 +2254,7 @@ def _require_lobby_mode():
 def _require_admin(request: Request):
     """Validate admin token from query param or header. Raise 403 if invalid."""
     token = request.query_params.get("admin_token") or request.headers.get("X-Admin-Token")
-    if token != admin_token:
+    if not token or not secrets.compare_digest(token, admin_token):
         raise HTTPException(status_code=403, detail="Invalid or missing admin token")
 
 
