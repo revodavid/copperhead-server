@@ -5,6 +5,7 @@
     "grid_size": "20x16",
     "speed": 0.12,
     "bots": 0,
+    "lobby_mode": false,
     "fruit_warning": 10,
     "max_fruits": 1,
     "fruit_interval": 8,

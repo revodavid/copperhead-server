@@ -6,10 +6,11 @@ import json
 import os
 import random
 import logging
+import secrets
 import subprocess
 import sys
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 from enum import Enum
@@ -31,6 +32,7 @@ class ServerConfig:
     grid_height: int = 20
     tick_rate: float = 0.15
     bots: int = 0
+    lobby_mode: bool = False  # When True, admin controls tournament start via lobby
     # Fruit settings
     fruit_warning: int = 20  # Ticks before expiry when lifetime is reported to client
     max_fruits: int = 1  # Max fruits on screen at once
@@ -77,6 +79,8 @@ async def startup_event():
     logger.info("🐍 CopperHead Server started")
     logger.info(f"   Grid: {config.grid_width}x{config.grid_height}, Tick rate: {config.tick_rate}s")
     logger.info(f"   Arenas: {config.arenas}, Points to win: {config.points_to_win}")
+    if config.lobby_mode:
+        logger.info(f"   Lobby mode: ON (admin token: {admin_token})")
     
     # Detect Codespaces environment
     codespace_name = os.environ.get("CODESPACE_NAME")
@@ -108,15 +112,20 @@ async def startup_event():
     # Initialize competition
     await competition.start_waiting()
     
-    # Build client URL with server parameter
+    # Build client URL with server parameter (and admin token in lobby mode)
     import urllib.parse
     client_base = "https://revodavid.github.io/copperhead-client/"
     client_url = f"{client_base}?server={urllib.parse.quote(ws_url, safe='')}"
+    admin_client_url = f"{client_url}&admin={admin_token}" if config.lobby_mode else None
     
     # Show URL reminder at the bottom so it's visible after all startup messages
     logger.info("")
     logger.info(f"📡 Server URL: {ws_url}")
-    logger.info(f"🎮 Play now: {client_url}")
+    if admin_client_url:
+        logger.info(f"🎮 Play now (player): {client_url}")
+        logger.info(f"🔑 Admin console: {admin_client_url}")
+    else:
+        logger.info(f"🎮 Play now: {client_url}")
     if codespace_name:
         logger.info(f"⚠️  Remember to make port 8765 PUBLIC in the Ports tab!")
     
@@ -160,6 +169,212 @@ class MatchResult:
         self.player2_points = player2_points
 
 
+# Admin token for lobby management — generated fresh on each server start
+admin_token: str = secrets.token_hex(4)  # 8-character hex string
+
+
+class Lobby:
+    """Manages players waiting to join a competition.
+    
+    When lobby_mode is enabled, players join the lobby first instead of going
+    directly into the competition. An administrator controls which players
+    get assigned to match slots and when the tournament starts.
+    
+    Players in the lobby are either:
+    - In the waiting list (joined but not assigned to a match slot)
+    - Assigned to a match slot (selected by the admin for the next tournament)
+    """
+    
+    def __init__(self):
+        # All players currently in the lobby (uid -> PlayerInfo)
+        self.players: dict[str, PlayerInfo] = {}
+        # Players assigned to match slots, in order (list of uids)
+        self.slot_assignments: list[str] = []
+        # Join order tracking for auto-fill (list of uids, oldest first)
+        self._join_order: list[str] = []
+        self._lock = asyncio.Lock()
+        self._next_uid = 1
+    
+    def _generate_uid(self) -> str:
+        uid = f"L{self._next_uid}"
+        self._next_uid += 1
+        return uid
+    
+    def max_slots(self) -> int:
+        """Maximum number of match slots (arenas × 2)."""
+        return config.arenas * 2
+    
+    def open_slots(self) -> int:
+        """Number of unfilled match slots."""
+        return self.max_slots() - len(self.slot_assignments)
+    
+    def waiting_players(self) -> list[PlayerInfo]:
+        """Players in the lobby but NOT assigned to a match slot."""
+        assigned = set(self.slot_assignments)
+        return [p for p in self.players.values() if p.uid not in assigned]
+    
+    async def join(self, name: str, websocket: WebSocket) -> Optional[PlayerInfo]:
+        """Add a player to the lobby. Returns PlayerInfo if accepted."""
+        async with self._lock:
+            uid = self._generate_uid()
+            is_bot = name.startswith("CopperBot")
+            player = PlayerInfo(uid, name, websocket, is_bot=is_bot)
+            self.players[uid] = player
+            self._join_order.append(uid)
+            
+            logger.info(f"📝 {name} ({uid}) joined lobby ({len(self.players)} in lobby)")
+            await self._broadcast_lobby_update()
+            return player
+    
+    async def leave(self, uid: str):
+        """Remove a player from the lobby (voluntary leave or disconnect)."""
+        async with self._lock:
+            if uid not in self.players:
+                return
+            player = self.players[uid]
+            
+            # Remove from slot assignments if assigned
+            if uid in self.slot_assignments:
+                self.slot_assignments.remove(uid)
+            
+            # Remove from join order and player list
+            if uid in self._join_order:
+                self._join_order.remove(uid)
+            del self.players[uid]
+            
+            logger.info(f"📝 {player.name} ({uid}) left lobby ({len(self.players)} in lobby)")
+            await self._broadcast_lobby_update()
+    
+    async def kick(self, uid: str) -> bool:
+        """Admin: kick a player from the lobby entirely. Returns True if found."""
+        async with self._lock:
+            if uid not in self.players:
+                return False
+            player = self.players[uid]
+            
+            # Remove from slot assignments if assigned
+            if uid in self.slot_assignments:
+                self.slot_assignments.remove(uid)
+            
+            # Remove from join order and player list
+            if uid in self._join_order:
+                self._join_order.remove(uid)
+            del self.players[uid]
+            
+            logger.info(f"🚫 {player.name} ({uid}) kicked from lobby")
+            
+            # Notify the kicked player
+            try:
+                await player.websocket.send_json({
+                    "type": "lobby_kicked",
+                    "message": "You have been removed from the lobby by an administrator"
+                })
+            except Exception:
+                pass
+            
+            await self._broadcast_lobby_update()
+            return True
+    
+    async def add_to_slot(self, uid: str) -> bool:
+        """Admin: move a lobby player into the next open match slot. Returns True if successful."""
+        async with self._lock:
+            if uid not in self.players:
+                return False
+            if uid in self.slot_assignments:
+                return False  # Already assigned
+            if self.open_slots() <= 0:
+                return False  # No open slots
+            
+            self.slot_assignments.append(uid)
+            player = self.players[uid]
+            logger.info(f"✅ {player.name} ({uid}) added to match slot ({len(self.slot_assignments)}/{self.max_slots()})")
+            await self._broadcast_lobby_update()
+            return True
+    
+    async def remove_from_slot(self, uid: str) -> bool:
+        """Admin: remove a player from their match slot (back to waiting). Returns True if successful."""
+        async with self._lock:
+            if uid not in self.slot_assignments:
+                return False
+            
+            self.slot_assignments.remove(uid)
+            player = self.players.get(uid)
+            name = player.name if player else uid
+            logger.info(f"↩️ {name} ({uid}) removed from match slot")
+            await self._broadcast_lobby_update()
+            return True
+    
+    def get_players_for_tournament(self) -> list[PlayerInfo]:
+        """Get the players assigned to match slots, filling remaining slots
+        from the waiting list (in join order). Does NOT fill with bots —
+        that happens in the Competition start logic."""
+        # Start with explicitly assigned players
+        assigned = list(self.slot_assignments)
+        
+        # Fill remaining slots from waiting list (join order)
+        remaining = self.open_slots()
+        if remaining > 0:
+            waiting_uids = [uid for uid in self._join_order 
+                           if uid in self.players and uid not in self.slot_assignments]
+            for uid in waiting_uids[:remaining]:
+                assigned.append(uid)
+        
+        return [self.players[uid] for uid in assigned if uid in self.players]
+    
+    async def clear_tournament_players(self, tournament_uids: set[str]):
+        """After a tournament ends, remove players who were in the tournament.
+        Waitlisted players stay in the lobby for the next tournament."""
+        async with self._lock:
+            for uid in tournament_uids:
+                if uid in self.players:
+                    del self.players[uid]
+                if uid in self.slot_assignments:
+                    self.slot_assignments.remove(uid)
+                if uid in self._join_order:
+                    self._join_order.remove(uid)
+            
+            # Reset slot assignments for next tournament
+            self.slot_assignments.clear()
+            
+            logger.info(f"🔄 Lobby reset: {len(self.players)} players remain in lobby")
+            await self._broadcast_lobby_update()
+    
+    def get_status(self) -> dict:
+        """Get current lobby state for API responses."""
+        assigned_set = set(self.slot_assignments)
+        return {
+            "lobby_mode": config.lobby_mode,
+            "players": [
+                {"uid": p.uid, "name": p.name, "is_bot": p.is_bot, "in_slot": p.uid in assigned_set}
+                for p in self.players.values()
+            ],
+            "slot_assignments": [
+                {"uid": uid, "name": self.players[uid].name}
+                for uid in self.slot_assignments if uid in self.players
+            ],
+            "max_slots": self.max_slots(),
+            "filled_slots": len(self.slot_assignments),
+            "open_slots": self.open_slots(),
+            "waiting_count": len(self.players) - len(self.slot_assignments),
+        }
+    
+    async def _broadcast_lobby_update(self):
+        """Send lobby state update to all players in the lobby."""
+        status = {
+            "type": "lobby_update",
+            **self.get_status()
+        }
+        for player in list(self.players.values()):
+            try:
+                await player.websocket.send_json(status)
+            except Exception:
+                pass
+
+
+# Global lobby instance
+lobby = Lobby()
+
+
 class Competition:
     """Manages a round-robin knockout competition."""
     
@@ -198,10 +413,14 @@ class Competition:
         self.current_bye_uid = None
         self.reset_start_time = None
         self._next_uid = 1
-        logger.info(f"🏆 Competition waiting for {config.arenas * 2} players")
         
-        # Spawn bots for the new competition
-        if config.bots > 0:
+        if config.lobby_mode:
+            logger.info(f"🏆 Lobby mode: waiting for admin to start tournament ({config.arenas * 2} slots)")
+        else:
+            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players")
+        
+        # Spawn bots for the new competition (only in auto-start mode)
+        if not config.lobby_mode and config.bots > 0:
             import threading
             def delayed_bot_spawn():
                 import time
@@ -213,7 +432,8 @@ class Competition:
         return config.arenas * 2
     
     async def register_player(self, name: str, websocket: WebSocket) -> Optional[PlayerInfo]:
-        """Register a player for the competition. Returns PlayerInfo if accepted."""
+        """Register a player for the competition. Returns PlayerInfo if accepted.
+        In lobby_mode, players join via the Lobby instead of calling this directly."""
         async with self._lock:
             if self.state != CompetitionState.WAITING_FOR_PLAYERS:
                 return None
@@ -231,8 +451,8 @@ class Competition:
             # Broadcast updated lobby status
             await self._broadcast_lobby_status()
             
-            # Check if we have enough players to start
-            if len(self.players) >= self.required_players():
+            # Auto-start when full (only in non-lobby mode)
+            if not config.lobby_mode and len(self.players) >= self.required_players():
                 await self._start_competition()
             
             return player
@@ -297,6 +517,58 @@ class Competition:
         # Notify all players and create rooms
         await self._broadcast_competition_status()
         await self._create_round_matches()
+    
+    async def start_from_lobby(self) -> tuple[bool, str]:
+        """Start the competition using players from the lobby.
+        
+        Fills slots in this order:
+        1. Players already assigned to slots by the admin
+        2. Remaining lobby players in join order
+        3. CopperBots for any remaining empty slots
+        
+        Returns (success, message) tuple.
+        """
+        if self.state != CompetitionState.WAITING_FOR_PLAYERS:
+            return False, "Competition is not in waiting state"
+        
+        required = self.required_players()
+        
+        # Get players from lobby (assigned first, then by join order)
+        lobby_players = lobby.get_players_for_tournament()
+        
+        # Register lobby players into the competition
+        for lp in lobby_players[:required]:
+            uid = self._generate_uid()
+            player = PlayerInfo(uid, lp.name, lp.websocket, is_bot=lp.is_bot)
+            self.players[uid] = player
+            # Store mapping so we can route messages from lobby websocket
+            lp._competition_uid = uid
+        
+        # Track which lobby players were used (for cleanup after tournament)
+        tournament_lobby_uids = {lp.uid for lp in lobby_players[:required]}
+        self._tournament_lobby_uids = tournament_lobby_uids
+        
+        # Fill remaining slots with CopperBots
+        bots_needed = required - len(self.players)
+        if bots_needed > 0:
+            logger.info(f"🤖 Auto-filling {bots_needed} slot(s) with CopperBots")
+            _spawn_bots_for_lobby(bots_needed)
+            # Give bots time to connect
+            for _ in range(50):  # Wait up to 5 seconds
+                await asyncio.sleep(0.1)
+                if len(self.players) >= required:
+                    break
+        
+        if len(self.players) < required:
+            return False, f"Not enough players ({len(self.players)}/{required}). Try again in a moment."
+        
+        # Start the competition
+        await self._start_competition()
+        
+        # Clean up lobby — remove players who entered the tournament
+        await lobby.clear_tournament_players(tournament_lobby_uids)
+        
+        return True, f"Competition started with {len(self.players)} players"
     
     async def _create_round_matches(self):
         """Create game rooms for current round's matches."""
@@ -1485,6 +1757,7 @@ class RoomManager:
             "total_players": total_players,
             "open_slots": open_slots,
             "competition_state": competition.state.value,
+            "lobby_mode": config.lobby_mode,
             "total_rooms": len(self.rooms),
             "speed": config.tick_rate,
             "grid_width": config.grid_width,
@@ -1514,8 +1787,15 @@ room_manager = RoomManager()
 
 @app.websocket("/ws/join")
 async def join_game(websocket: WebSocket):
-    """Auto-matchmaking: join a competition slot."""
+    """Auto-matchmaking: join a competition slot (or lobby in lobby_mode)."""
     await websocket.accept()
+    
+    # In lobby mode, players join the lobby instead of going directly to rooms
+    if config.lobby_mode:
+        await _handle_lobby_join(websocket)
+        return
+    
+    # --- Standard (non-lobby) flow below ---
     
     # Check if competition is accepting players
     if competition.state != CompetitionState.WAITING_FOR_PLAYERS:
@@ -1577,6 +1857,100 @@ async def join_game(websocket: WebSocket):
         # Also notify competition of disconnect (handles Bye player forfeits)
         await competition.unregister_player(uid)
         room_manager.cleanup_empty_rooms()
+
+
+async def _handle_lobby_join(websocket: WebSocket):
+    """Handle a player joining via the lobby in lobby_mode.
+    
+    The player stays connected in the lobby, receiving lobby_update messages,
+    until the admin starts the tournament (if they're selected) or they leave.
+    """
+    player_info = None
+    
+    try:
+        # Wait for the player to send a "ready" action with their name
+        # (same protocol as non-lobby mode)
+        while True:
+            data = await websocket.receive_json()
+            action = data.get("action")
+            
+            if action == "ready":
+                name = data.get("name", "Player")
+                player_info = await lobby.join(name, websocket)
+                
+                if not player_info:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Could not join lobby"
+                    })
+                    await websocket.close(code=4003, reason="Could not join lobby")
+                    return
+                
+                # Confirm lobby join
+                await websocket.send_json({
+                    "type": "lobby_joined",
+                    "uid": player_info.uid,
+                    "name": name,
+                    "message": "You have joined the lobby. Waiting for tournament to start."
+                })
+                
+                # Send current lobby state
+                await websocket.send_json({
+                    "type": "lobby_update",
+                    **lobby.get_status()
+                })
+                break
+            
+            elif action == "leave_lobby":
+                # Player wants to leave before even fully joining
+                await websocket.close(code=1000, reason="Left lobby")
+                return
+    except WebSocketDisconnect:
+        return
+    
+    # Player is now in the lobby — keep connection alive, handle messages
+    try:
+        while True:
+            data = await websocket.receive_json()
+            action = data.get("action")
+            
+            if action == "leave_lobby":
+                await lobby.leave(player_info.uid)
+                await websocket.send_json({
+                    "type": "lobby_left",
+                    "message": "You have left the lobby"
+                })
+                await websocket.close(code=1000, reason="Left lobby")
+                return
+            
+            elif action == "move" and player_info:
+                # Player might be in a game now (tournament started)
+                comp_uid = getattr(player_info, '_competition_uid', None)
+                comp_player = competition.players.get(comp_uid) if comp_uid else None
+                if comp_player and comp_player.current_room:
+                    await comp_player.current_room.handle_message(
+                        comp_player.current_player_id, data
+                    )
+            
+            elif action == "ready" and player_info:
+                # Player signaling ready for a game (tournament may have started)
+                comp_uid = getattr(player_info, '_competition_uid', None)
+                comp_player = competition.players.get(comp_uid) if comp_uid else None
+                if comp_player and comp_player.current_room:
+                    await comp_player.current_room.handle_message(
+                        comp_player.current_player_id, data
+                    )
+    
+    except WebSocketDisconnect:
+        if player_info:
+            # Remove from lobby if still there
+            if player_info.uid in lobby.players:
+                await lobby.leave(player_info.uid)
+            # Also handle competition disconnect if in tournament
+            comp_uid = getattr(player_info, '_competition_uid', None)
+            if comp_uid:
+                await competition.unregister_player(comp_uid)
+                room_manager.cleanup_empty_rooms()
 
 
 async def _start_competition_from_rooms():
@@ -1866,6 +2240,129 @@ async def add_bot(difficulty: int = None):
     return {"success": True, "message": f"CopperBot L{difficulty} added to Room {room.room_id}"}
 
 
+# ============================================================================
+# Lobby Admin Endpoints (only active when lobby_mode is enabled)
+# ============================================================================
+
+
+def _require_lobby_mode():
+    """Raise 400 if lobby mode is not enabled."""
+    if not config.lobby_mode:
+        raise HTTPException(status_code=400, detail="Lobby mode is not enabled. Set lobby_mode: true in server-settings.json")
+
+
+def _require_admin(request: Request):
+    """Validate admin token from query param or header. Raise 403 if invalid."""
+    token = request.query_params.get("admin_token") or request.headers.get("X-Admin-Token")
+    if token != admin_token:
+        raise HTTPException(status_code=403, detail="Invalid or missing admin token")
+
+
+@app.get("/lobby")
+async def get_lobby():
+    """Get current lobby state. Available to all clients."""
+    _require_lobby_mode()
+    return lobby.get_status()
+
+
+@app.post("/lobby/kick")
+async def lobby_kick(uid: str, request: Request):
+    """Admin: kick a player from the lobby."""
+    _require_lobby_mode()
+    _require_admin(request)
+    
+    success = await lobby.kick(uid)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Player {uid} not found in lobby")
+    return {"success": True, "message": f"Player {uid} kicked from lobby"}
+
+
+@app.post("/lobby/add_to_slot")
+async def lobby_add_to_slot(uid: str, request: Request):
+    """Admin: move a lobby player into the next open match slot."""
+    _require_lobby_mode()
+    _require_admin(request)
+    
+    success = await lobby.add_to_slot(uid)
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Cannot add {uid} to slot (not in lobby, already assigned, or no open slots)")
+    return {"success": True, "message": f"Player {uid} added to match slot"}
+
+
+@app.post("/lobby/remove_from_slot")
+async def lobby_remove_from_slot(uid: str, request: Request):
+    """Admin: remove a player from their match slot (back to waiting)."""
+    _require_lobby_mode()
+    _require_admin(request)
+    
+    success = await lobby.remove_from_slot(uid)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Player {uid} not in a match slot")
+    return {"success": True, "message": f"Player {uid} removed from match slot"}
+
+
+@app.post("/lobby/add_bot")
+async def lobby_add_bot(request: Request, difficulty: int = None):
+    """Admin: add a CopperBot to the lobby."""
+    _require_lobby_mode()
+    _require_admin(request)
+    
+    if difficulty is None or difficulty < 1 or difficulty > 10:
+        difficulty = random.randint(1, 10)
+    
+    # Spawn a bot that will connect via /ws/join and enter the lobby
+    _spawn_bots_for_lobby(1)
+    return {"success": True, "message": f"CopperBot spawned (will join lobby shortly)"}
+
+
+@app.post("/lobby/play")
+async def lobby_admin_play(request: Request, name: str = "Admin"):
+    """Admin: join the competition directly, skipping the lobby.
+    Registers the admin as a player in the competition (not in the lobby)."""
+    _require_lobby_mode()
+    _require_admin(request)
+    
+    if competition.state != CompetitionState.WAITING_FOR_PLAYERS:
+        raise HTTPException(status_code=400, detail="Competition already in progress")
+    
+    # Admin joins competition directly — they'll need a WebSocket for gameplay.
+    # This endpoint reserves the slot; the admin connects via /ws/join separately.
+    return {"success": True, "message": f"Use /ws/join to connect as {name} — admin players skip the lobby"}
+
+
+@app.post("/lobby/play_bot")
+async def lobby_admin_play_bot(request: Request, name: str = "Admin"):
+    """Admin: quick start a 1v1 with a CopperBot (single-arena only)."""
+    _require_lobby_mode()
+    _require_admin(request)
+    
+    if config.arenas != 1:
+        raise HTTPException(status_code=400, detail="Play Bot is only available with exactly 1 arena")
+    
+    if competition.state != CompetitionState.WAITING_FOR_PLAYERS:
+        raise HTTPException(status_code=400, detail="Competition already in progress")
+    
+    # Spawn a bot to be the opponent
+    _spawn_bots_for_lobby(1)
+    
+    return {"success": True, "message": f"CopperBot spawned — connect via /ws/join as {name} to start playing"}
+
+
+@app.post("/start_tournament")
+async def start_tournament(request: Request):
+    """Admin: start the tournament with current lobby players.
+    
+    Fills slots in order: assigned players → lobby waitlist → CopperBots.
+    """
+    _require_lobby_mode()
+    _require_admin(request)
+    
+    success, message = await competition.start_from_lobby()
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"success": True, "message": message}
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -1971,6 +2468,8 @@ def apply_spec_to_config(spec: dict):
         config.tick_rate = spec["speed"]
     if "bots" in spec:
         config.bots = spec["bots"]
+    if "lobby_mode" in spec:
+        config.lobby_mode = spec["lobby_mode"]
     
     # Parse grid size
     if "grid_size" in spec:
@@ -2070,6 +2569,9 @@ def apply_config(args):
     config.tick_rate = args.speed if args.speed is not None else spec.get("speed", 0.15)
     config.bots = args.bots if args.bots is not None else spec.get("bots", 0)
     
+    # Lobby mode: only from spec file (no CLI arg)
+    config.lobby_mode = spec.get("lobby_mode", False)
+    
     # Parse grid size
     grid_size = args.grid_size if args.grid_size is not None else spec.get("grid_size", "30x20")
     try:
@@ -2120,6 +2622,35 @@ def spawn_initial_bots(count: int):
             logger.info(f"🤖 Spawned CopperBot L{difficulty} ({i+1}/{count})")
         except Exception as e:
             logger.error(f"❌ Failed to spawn bot: {e}")
+
+
+def _spawn_bots_for_lobby(count: int):
+    """Spawn CopperBots to fill empty tournament slots in lobby mode.
+    Uses the /ws/join endpoint so bots register through normal flow."""
+    if count <= 0:
+        return
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(script_dir, "copperbot.py")
+    
+    codespace_name = os.environ.get("CODESPACE_NAME")
+    github_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    
+    if codespace_name:
+        server_url = f"wss://{codespace_name}-8765.{github_domain}/ws/"
+    else:
+        server_url = "ws://localhost:8765/ws/"
+    
+    for i in range(count):
+        difficulty = random.randint(1, 10)
+        try:
+            subprocess.Popen(
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty), "--quiet"],
+                cwd=script_dir
+            )
+            logger.info(f"🤖 Spawned CopperBot L{difficulty} for lobby fill ({i+1}/{count})")
+        except Exception as e:
+            logger.error(f"❌ Failed to spawn bot for lobby: {e}")
 
 
 if __name__ == "__main__":
