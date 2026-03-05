@@ -8,6 +8,19 @@ Human or AI players, or a mixture of both, may join the server before the compet
 
 No player may join a competition after it begins. Players who disconnect during a competition automatically forfeit their matches.
 
+## Lobby Mode
+
+When `lobby_mode` is enabled in `server-settings.json`, the server uses an admin-controlled lobby system instead of auto-starting the tournament when enough players join.
+
+In lobby mode, players who connect via `/ws/join` enter a **lobby** (waiting room) rather than being placed directly into a match slot. An administrator uses the admin URL (displayed at server startup) to manage the lobby:
+
+- **Assign slots**: Move players from the lobby into match slots.
+- **Kick players**: Remove unwanted players from the lobby.
+- **Add bots**: Add CopperBot opponents to the lobby.
+- **Start the tournament**: When the admin starts the tournament, any empty match slots are auto-filled from the lobby in join order, then with CopperBots if slots remain.
+
+After a tournament ends, players who were waitlisted (in the lobby but not assigned to a slot) remain in the lobby for the next tournament.
+
 ## Round 1
 
 In Round 1, players are paired in the order they joined to compete in matches. 

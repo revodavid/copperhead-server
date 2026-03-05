@@ -26,6 +26,8 @@ The CopperHead server provides many configurable settings for the game rules: nu
 
 As host, fork the [copperhead-server](https://github.com/revodavid/copperhead-server) repository to your own GitHub account. Edit the [`server-settings.json`](server-settings.json) file to define the rules for your game. (Leave the `arenas` setting at 1 for now - you will increase it to accommodate all competing teams just before the final tournament.)
 
+**Recommended: Enable lobby mode** by setting `"lobby_mode": true` in `server-settings.json`. Lobby mode gives you full control over when the tournament starts, so players and bots can connect at their own pace without the tournament starting prematurely. See [Lobby Mode](competition-logic.md#lobby-mode) for details.
+
 Follow the instructions in the [CopperHead Server README](https://github.com/revodavid/copperhead-server) to launch the server in GitHub Codespaces. Launch the CopperHead client as instructed to launch the game and show it on the big screen if available. This server will serve as a public arena for all teams to connect to during the hacking period and the final tournament.
 
 Share your modified `server-settings.json` file and the server URL for your game with all participants so they can code their bots to the correct game rules.
@@ -74,6 +76,28 @@ Feeling confident? Try testing your bot against other teams' bots by connecting 
 ## Step 4: The Final Tournament
 
 When the hacking period ends, it's time for the final tournament! At this point, humans may join the tournament as a team, if you like.
+
+### Option A: Using Lobby Mode (Recommended)
+
+If you enabled `lobby_mode` in Step 2:
+
+1. As host, increase the `arenas` setting in your server's `server-settings.json` to half the number of participating teams (rounded up).
+
+2. Open the **admin URL** shown in the server startup console. This gives you access to the lobby management interface.
+
+3. Each team connects their bot to the host's public server:
+    ```bash
+    python hackbot.py --name "TeamName Bot" --server wss://host-codespaces-url.app.github.dev/ws/
+    ```
+   * Human players may also join by launching the CopperHead client on the tournament server and clicking "Join".
+
+4. As admin, arrange players into match slots and add CopperBot opponents to fill any remaining slots if needed.
+
+5. When all teams are ready, click **Start Tournament** in the admin interface. Watch the action on the big screen!
+
+### Option B: Without Lobby Mode
+
+If you did not enable lobby mode, the tournament starts automatically once enough players connect:
 
 1. As host, increase the `arenas` setting in your server's `server-settings.json` file to half the number of participating teams (rounded up). For example, if you have 7 teams, set `arenas` to 4 to accommodate all teams in Round 1.
 

@@ -70,6 +70,18 @@ Instead of using a spec file, you may provide command-line options. These option
 
 * `--bots`: Number of AI opponents to launch at tournament start. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels.
 
+### Lobby Mode
+
+By default, the server auto-starts a tournament once enough players have joined. If you want manual control over who plays and when the tournament begins, enable **lobby mode** by setting `"lobby_mode": true` in `server-settings.json`.
+
+In lobby mode:
+1. Players connect via `/ws/join` and enter a **lobby** (waiting room) instead of being placed directly into a match.
+2. An **administrator** manages the tournament using a special admin URL printed to the console at server startup. The admin URL contains an auto-generated token for authentication.
+3. The admin can move players from the lobby into match slots, kick players, add CopperBots, and start the tournament when ready.
+4. When the tournament starts, any empty match slots are auto-filled from the lobby (in join order), then with CopperBots.
+
+Lobby mode is especially useful for [hosting Bot Hack Tournaments](How-To-Host-A-Bot-Hack-Tournament.md) where the host needs to coordinate when play begins.
+
 ### Bot Opponents
 
 This repo provides a simple AI opponent (CopperBot - `copperbot.py`) that will be launched as necessary to provide AI opponents. CopperBot's logic is basic and can be easily defeated: you are encouraged to develop your own AI opponents with improved strategies. See [How-To-Build-Your-Own-Bot.md](How-To-Build-Your-Own-Bot.md) for details.
@@ -109,6 +121,19 @@ For local servers, use: `ws://localhost:8765/ws`
 - `/ws/observe` - Observe active games
 - `/ws/{player_id}` - Legacy endpoint (player_id: 1 or 2)
 
+### HTTP Endpoints (Lobby Mode)
+
+These endpoints are only available when `lobby_mode` is enabled in `server-settings.json`. All endpoints except `GET /lobby` require the admin token for authentication.
+
+- `GET /lobby` — Returns the current lobby state (public, no auth required)
+- `POST /lobby/kick?uid=X&admin_token=TOKEN` — Kick a player from the lobby
+- `POST /lobby/add_to_slot?uid=X&admin_token=TOKEN` — Move a player from the lobby to a match slot
+- `POST /lobby/remove_from_slot?uid=X&admin_token=TOKEN` — Remove a player from a match slot
+- `POST /lobby/add_bot?admin_token=TOKEN` — Add a CopperBot to the lobby
+- `POST /lobby/play?admin_token=TOKEN&name=Admin` — Admin joins the lobby directly as a player
+- `POST /lobby/play_bot?admin_token=TOKEN&name=Admin` — Admin joins and a bot is added for an instant 1v1
+- `POST /start_tournament?admin_token=TOKEN` — Start the tournament with current slot assignments
+
 ### Messages
 
 **Client → Server:**
@@ -120,6 +145,12 @@ For local servers, use: `ws://localhost:8765/ws`
 - `{"type": "state", "game": {...}, "wins": {...}, "names": {...}}` - Game state update
 - `{"type": "start"}` - Game started
 - `{"type": "gameover", "winner": 1|2|null}` - Game ended
+
+**Server → Client (Lobby Mode):**
+- `{"type": "lobby_update", ...}` - Broadcast with full lobby state (players, slots, etc.)
+- `{"type": "lobby_joined", ...}` - Confirmation that the player has joined the lobby
+- `{"type": "lobby_left", ...}` - Confirmation that the player has left the lobby
+- `{"type": "lobby_kicked", ...}` - Notification that the player was kicked by an admin
 
 ## Spawning Bots
 
