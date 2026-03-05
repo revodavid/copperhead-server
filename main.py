@@ -32,7 +32,9 @@ class ServerConfig:
     grid_height: int = 20
     tick_rate: float = 0.15
     bots: int = 0
-    auto_start: bool = True  # When True, competition starts automatically when all slots are filled
+    # Auto-start mode: "always" (auto-admit + auto-start), "admit_only" (auto-admit, admin starts),
+    # or "never" (admin admits and starts). Default: "admit_only"
+    auto_start: str = "admit_only"
     # Fruit settings
     fruit_warning: int = 20  # Ticks before expiry when lifetime is reported to client
     max_fruits: int = 1  # Max fruits on screen at once
@@ -79,7 +81,7 @@ async def startup_event():
     logger.info("🐍 CopperHead Server started")
     logger.info(f"   Grid: {config.grid_width}x{config.grid_height}, Tick rate: {config.tick_rate}s")
     logger.info(f"   Arenas: {config.arenas}, Points to win: {config.points_to_win}")
-    logger.info(f"   Auto-start: {'ON' if config.auto_start else 'OFF'}")
+    logger.info(f"   Auto-start: {config.auto_start}")
     logger.info(f"   Admin token: {admin_token}")
     
     # Detect Codespaces environment
@@ -212,7 +214,7 @@ class Lobby:
     
     async def join(self, name: str, websocket: WebSocket) -> Optional[PlayerInfo]:
         """Add a player to the lobby. Returns PlayerInfo if accepted.
-        When auto_start is on, also automatically assigns them to a slot if available."""
+        When auto_start is "always" or "admit_only", also auto-assigns them to a slot."""
         async with self._lock:
             uid = self._generate_uid()
             is_bot = name.startswith("CopperBot")
@@ -222,17 +224,18 @@ class Lobby:
             
             logger.info(f"📝 {name} ({uid}) joined lobby ({len(self.players)} in lobby)")
             
-            # Auto-admit to a slot when auto_start is enabled and competition is waiting
+            # Auto-admit to a slot when auto_start is "always" or "admit_only"
+            auto_admit = config.auto_start in ("always", "admit_only")
             waiting = competition.state == CompetitionState.WAITING_FOR_PLAYERS
-            if config.auto_start and waiting and self.open_slots() > 0:
+            if auto_admit and waiting and self.open_slots() > 0:
                 self.slot_assignments.append(uid)
                 logger.info(f"✅ Auto-admitted {name} ({uid}) to slot ({len(self.slot_assignments)}/{self.max_slots()})")
             
             await self._broadcast_lobby_update()
             
-            # Auto-start competition when all slots are filled and auto_start is on
-            if config.auto_start and waiting and self.open_slots() <= 0:
-                logger.info("🚀 All slots filled with auto_start ON — starting competition")
+            # Auto-start competition only in "always" mode when all slots are filled
+            if config.auto_start == "always" and waiting and self.open_slots() <= 0:
+                logger.info("🚀 All slots filled (auto_start=always) — starting competition")
                 import asyncio
                 asyncio.create_task(competition.start_from_lobby())
             
@@ -302,10 +305,10 @@ class Lobby:
             logger.info(f"✅ {player.name} ({uid}) added to match slot ({len(self.slot_assignments)}/{self.max_slots()})")
             await self._broadcast_lobby_update()
             
-            # Auto-start competition when all slots are filled and auto_start is on
+            # Auto-start competition only in "always" mode when all slots are filled
             waiting = competition.state == CompetitionState.WAITING_FOR_PLAYERS
-            if config.auto_start and waiting and self.open_slots() <= 0:
-                logger.info("🚀 All slots filled with auto_start ON — starting competition")
+            if config.auto_start == "always" and waiting and self.open_slots() <= 0:
+                logger.info("🚀 All slots filled (auto_start=always) — starting competition")
                 import asyncio
                 asyncio.create_task(competition.start_from_lobby())
             
@@ -434,10 +437,12 @@ class Competition:
         self.reset_start_time = None
         self._next_uid = 1
         
-        if config.auto_start:
-            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (auto-start ON)")
+        if config.auto_start == "always":
+            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (auto-start: always)")
+        elif config.auto_start == "admit_only":
+            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (auto-start: admit_only — admin starts)")
         else:
-            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (admin starts)")
+            logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (auto-start: never — admin controls)")
         
         # Spawn initial bots into the lobby if configured
         if config.bots > 0:
@@ -471,8 +476,8 @@ class Competition:
             # Broadcast updated lobby status
             await self._broadcast_lobby_status()
             
-            # Auto-start when full (only in auto-start mode)
-            if config.auto_start and len(self.players) >= self.required_players():
+            # Auto-start when full (only in "always" mode)
+            if config.auto_start == "always" and len(self.players) >= self.required_players():
                 await self._start_competition()
             
             return player
@@ -554,18 +559,38 @@ class Competition:
         3. CopperBots for any remaining empty slots
         
         Returns (success, message) tuple.
+        
+        Uses a lock to prevent concurrent calls (e.g. admin click + auto-start race).
         """
         async with self._lock:
             if self.state != CompetitionState.WAITING_FOR_PLAYERS:
                 return False, "Competition is not in waiting state"
-            
-            # Mark as starting to prevent double-start race
+            # Transition to IN_PROGRESS to prevent re-entry
             self.state = CompetitionState.IN_PROGRESS
         
         required = self.required_players()
         
-        # Get players from lobby (assigned first, then by join order)
+        # Count how many lobby players we have before spawning bots
+        lobby_count = len(lobby.get_players_for_tournament())
+        bots_needed = required - lobby_count
+        
+        # Spawn bots if needed BEFORE collecting lobby players
+        if bots_needed > 0:
+            logger.info(f"🤖 Auto-filling {bots_needed} slot(s) with CopperBots")
+            _spawn_bots_for_lobby(bots_needed)
+            # Wait for bots to connect to the lobby
+            for _ in range(50):  # Wait up to 5 seconds
+                await asyncio.sleep(0.1)
+                if len(lobby.get_players_for_tournament()) >= required:
+                    break
+        
+        # Now collect all lobby players (including newly-joined bots)
         lobby_players = lobby.get_players_for_tournament()
+        
+        if len(lobby_players) < required:
+            # Not enough players — revert state so start can be retried
+            self.state = CompetitionState.WAITING_FOR_PLAYERS
+            return False, f"Not enough players ({len(lobby_players)}/{required}). Try again in a moment."
         
         # Register lobby players into the competition
         for lp in lobby_players[:required]:
@@ -578,22 +603,6 @@ class Competition:
         # Track which lobby players were used (for cleanup after tournament)
         tournament_lobby_uids = {lp.uid for lp in lobby_players[:required]}
         self._tournament_lobby_uids = tournament_lobby_uids
-        
-        # Fill remaining slots with CopperBots
-        bots_needed = required - len(self.players)
-        if bots_needed > 0:
-            logger.info(f"🤖 Auto-filling {bots_needed} slot(s) with CopperBots")
-            _spawn_bots_for_lobby(bots_needed)
-            # Give bots time to connect
-            for _ in range(50):  # Wait up to 5 seconds
-                await asyncio.sleep(0.1)
-                if len(self.players) >= required:
-                    break
-        
-        if len(self.players) < required:
-            # Revert state so start can be retried
-            self.state = CompetitionState.WAITING_FOR_PLAYERS
-            return False, f"Not enough players ({len(self.players)}/{required}). Try again in a moment."
         
         # Start the competition
         await self._start_competition()
@@ -2429,7 +2438,15 @@ def apply_spec_to_config(spec: dict):
     if "bots" in spec:
         config.bots = spec["bots"]
     if "auto_start" in spec:
-        config.auto_start = spec["auto_start"]
+        raw = spec["auto_start"]
+        if raw is True:
+            config.auto_start = "always"
+        elif raw is False:
+            config.auto_start = "never"
+        elif raw in ("always", "admit_only", "never"):
+            config.auto_start = raw
+        else:
+            logger.warning(f"Invalid auto_start value '{raw}', ignoring")
     
     # Parse grid size
     if "grid_size" in spec:
@@ -2530,7 +2547,17 @@ def apply_config(args):
     config.bots = args.bots if args.bots is not None else spec.get("bots", 0)
     
     # Auto-start: only from spec file (no CLI arg)
-    config.auto_start = spec.get("auto_start", True)
+    # Accepts string ("always", "admit_only", "never") or bool (true→"always", false→"never")
+    raw_auto_start = spec.get("auto_start", "admit_only")
+    if raw_auto_start is True:
+        config.auto_start = "always"
+    elif raw_auto_start is False:
+        config.auto_start = "never"
+    elif raw_auto_start in ("always", "admit_only", "never"):
+        config.auto_start = raw_auto_start
+    else:
+        logger.warning(f"Invalid auto_start value '{raw_auto_start}', using 'admit_only'")
+        config.auto_start = "admit_only"
     
     # Parse grid size
     grid_size = args.grid_size if args.grid_size is not None else spec.get("grid_size", "30x20")
