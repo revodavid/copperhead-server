@@ -269,6 +269,8 @@ class RobotPlayer:
             self.game_state = None  # Reset game state for new match
             opponent = data.get("opponent", "Opponent")
             self.log(f"Assigned to Arena {self.room_id} as Player {self.player_id} vs {opponent}")
+            # Signal ready to the server
+            await self.ws.send(json.dumps({"action": "ready", "name": self.name}))
         
         elif msg_type == "competition_complete":
             # Competition is over

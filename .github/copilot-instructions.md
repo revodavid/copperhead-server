@@ -41,7 +41,7 @@ CopperHead is a 2-player Snake game server. The entire server is a single-file F
 
 ### Bot system (`copperbot.py`)
 
-`copperbot.py` implements `RobotPlayer`, a standalone WebSocket client that connects to the server as an AI player. It uses a score-based decision system in `calculate_move()` with configurable difficulty (1-10). The server spawns bot subprocesses via the `/add_bot` HTTP endpoint or the `bots` config setting.
+`copperbot.py` implements `RobotPlayer`, a standalone WebSocket client that connects to the server as an AI player. It uses a score-based decision system in `calculate_move()` with configurable difficulty (1-10). The server spawns bot subprocesses via the `/add_bot` HTTP endpoint or the `bots` config setting (which pre-populates the lobby at the start of each competition).
 
 The `bot-library/` directory contains community-contributed bots. All bots must accept `--server`, `--name`, and `--difficulty` CLI arguments.
 

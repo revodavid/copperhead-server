@@ -62,13 +62,13 @@ Instead of using a spec file, you may provide command-line options. These option
 
 * `--points-to-win`: Number of points required to win a match. Default is 5.
 
-* `--reset-delay`: Once a competition is complete, the server will wait this many seconds before resetting. At reset the competition restarts: active bots are terminated, new bots are launched according to the `--bots` setting, and the server begins accepting new players. 
+* `--reset-delay`: Once a competition is complete, the server will wait this many seconds before resetting. At reset the competition restarts: active bots are terminated, new bots are spawned according to the `--bots` setting (minus any human players already in the lobby), and the server begins accepting new players. 
 
 * `--grid-size`: Size of the game grid as WIDTHxHEIGHT. 
 
 * `--speed`: The tick rate of the game in seconds per frame. The default is suitable for human players. Lower values increase game speed.
 
-* `--bots`: Number of AI opponents to launch at tournament start. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels.
+* `--bots`: Number of AI opponents to pre-populate the lobby with at the start of each competition. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels. Human players who are already in the lobby reduce the number of bots spawned. With `auto_start: "always"` and `bots` equal to or greater than the number of required players, the game runs continuously.
 
 ### Lobby and Admin Mode
 
@@ -80,9 +80,10 @@ The `auto_start` setting in `server-settings.json` controls how players are admi
 - **`"never"`** — The admin manually assigns players to slots (via **Admit**) and starts the competition. Full manual control.
 
 In both modes:
-1. Players connect via `/ws/join` and enter the lobby.
+1. Players connect via `/ws/join` and send `{"action": "ready", "name": "YourName"}` to enter the lobby.
 2. The admin can move players from the lobby into match slots, kick players, add CopperBots, and start the tournament when ready.
-4. When the tournament starts, any empty match slots are auto-filled from the lobby (in join order), then with CopperBots.
+3. When the tournament starts, any empty match slots are auto-filled from the lobby (in join order), then with CopperBots.
+4. Players receive `match_assigned` when placed in a room, and must send `{"action": "ready"}` to signal they are ready to play.
 
 Lobby mode is especially useful for [hosting Bot Hack Tournaments](How-To-Host-A-Bot-Hack-Tournament.md) where the host needs to coordinate when play begins.
 
@@ -121,9 +122,8 @@ For local servers, use: `ws://localhost:8765/ws`
 
 ### WebSocket Endpoints
 
-- `/ws/join` - Auto-matchmaking (recommended)
+- `/ws/join` - Join the lobby (recommended). After connecting, send `{"action": "ready", "name": "YourName"}` to enter the lobby.
 - `/ws/observe` - Observe active games
-- `/ws/{player_id}` - Legacy endpoint (player_id: 1 or 2)
 
 ### HTTP Endpoints (Lobby)
 
@@ -141,11 +141,13 @@ These endpoints are always available. All endpoints except `GET /lobby` require 
 ### Messages
 
 **Client → Server:**
-- `{"action": "ready", "name": "PlayerName"}` - Ready to play
+- `{"action": "ready", "name": "PlayerName"}` - Join the lobby / signal ready for a match
 - `{"action": "move", "direction": "up|down|left|right"}` - Change snake direction
+- `{"action": "leave_lobby"}` - Leave the lobby
 
 **Server → Client:**
 - `{"type": "joined", "room_id": 1, "player_id": 1}` - Joined a room
+- `{"type": "match_assigned", "room_id": 1, "player_id": 1, "opponent": "Name"}` - Assigned to a match (send `ready` to begin)
 - `{"type": "state", "game": {...}, "wins": {...}, "names": {...}}` - Game state update
 - `{"type": "start"}` - Game started
 - `{"type": "gameover", "winner": 1|2|null}` - Game ended
@@ -158,14 +160,14 @@ These endpoints are always available. All endpoints except `GET /lobby` require 
 
 ## Spawning Bots
 
-Use the `/add_bot` API endpoint to spawn CopperBot opponents:
+Use the `/lobby/add_bot` admin endpoint to spawn CopperBot opponents:
 
 ```bash
-# Spawn a bot with random difficulty (1-10)
-curl -X POST "http://localhost:8765/add_bot"
+# Spawn a bot with random difficulty (requires admin token)
+curl -X POST "http://localhost:8765/lobby/add_bot?admin_token=YOUR_TOKEN"
 
 # Spawn a bot with specific difficulty
-curl -X POST "http://localhost:8765/add_bot?difficulty=7"
+curl -X POST "http://localhost:8765/lobby/add_bot?difficulty=7&admin_token=YOUR_TOKEN"
 ```
 
 ## License

@@ -37,7 +37,12 @@ class RobotPlayer:
             print(msg.encode("ascii", errors="replace").decode("ascii"))
         
     async def wait_for_open_competition(self):
-        """Wait until a competition is accepting players."""
+        """Wait until the server is reachable, then return.
+        
+        Bots always join the lobby regardless of competition state —
+        the lobby is always available and the bot will wait there until
+        the next competition starts.
+        """
         import aiohttp
         
         base_url = self.server_url.rstrip("/")
@@ -49,21 +54,16 @@ class RobotPlayer:
         while True:
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{http_url}/competition") as resp:
+                    async with session.get(f"{http_url}/status") as resp:
                         if resp.status == 200:
-                            data = await resp.json()
-                            state = data.get("state", "")
-                            if state == "waiting_for_players":
-                                self.log("Competition open - joining...")
-                                return True
-                            else:
-                                self.log(f"Competition in progress ({state}), waiting...")
+                            self.log("Server reachable - joining lobby...")
+                            return True
                         else:
                             self.log(f"Server not ready (status {resp.status}), waiting...")
             except Exception as e:
                 self.log(f"Cannot reach server: {e}, waiting...")
             
-            await asyncio.sleep(5)  # Wait 5 seconds before retrying
+            await asyncio.sleep(5)# Wait 5 seconds before retrying
     
     async def connect(self):
         """Connect to the game server using auto-matchmaking."""
@@ -79,7 +79,12 @@ class RobotPlayer:
         try:
             self.log(f"Connecting to {url}...")
             self.ws = await websockets.connect(url)
-            self.log(f"Connected! Waiting for player assignment...")
+            self.log("Connected! Joining lobby...")
+            # Send ready message to join the lobby
+            await self.ws.send(json.dumps({
+                "action": "ready",
+                "name": self.name
+            }))
             return True
         except Exception as e:
             self.log(f"Connection failed: {e}")
@@ -202,7 +207,18 @@ class RobotPlayer:
             self.game_state = None  # Reset game state for new match
             opponent = data.get("opponent", "Opponent")
             self.log(f"Assigned to Arena {self.room_id} as Player {self.player_id} vs {opponent}")
+            # Signal ready to the server
+            await self.ws.send(json.dumps({"action": "ready", "name": self.name}))
         
+        elif msg_type in ("lobby_joined", "lobby_update"):
+            # In the lobby waiting for the competition to start
+            if msg_type == "lobby_joined":
+                self.log(f"Joined lobby as '{data.get('name', self.name)}'")
+
+        elif msg_type in ("lobby_left", "lobby_kicked"):
+            self.log("Removed from lobby.")
+            self.running = False
+
         elif msg_type == "competition_complete":
             # Competition is over
             champion = data.get("champion", {}).get("name", "Unknown")

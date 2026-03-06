@@ -444,14 +444,37 @@ class Competition:
         else:
             logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (auto-start: never — admin controls)")
         
-        # Spawn initial bots into the lobby if configured
+        # Auto-admit existing lobby players to slots if auto_start is "always" or "admit_only"
+        # These are players who joined the lobby during the previous competition
+        if config.auto_start in ("always", "admit_only") and len(lobby.players) > 0:
+            max_slots = config.arenas * 2
+            for uid in list(lobby._join_order):
+                if uid in lobby.players and uid not in lobby.slot_assignments:
+                    if len(lobby.slot_assignments) < max_slots:
+                        lobby.slot_assignments.append(uid)
+                        logger.info(f"✅ Auto-admitted {lobby.players[uid].name} ({uid}) to slot ({len(lobby.slot_assignments)}/{max_slots})")
+            await lobby._broadcast_lobby_update()
+            
+            # If all slots filled by existing players and auto_start is "always", start immediately
+            if config.auto_start == "always" and lobby.open_slots() <= 0:
+                logger.info("🚀 All slots filled by returning players (auto_start=always) — starting competition")
+                asyncio.create_task(self.start_from_lobby())
+        
+        # Spawn bots into the lobby if configured, minus players already waiting
+        # Players who joined during the previous competition persist in the lobby
         if config.bots > 0:
-            import threading
-            def delayed_bot_spawn():
-                import time
-                time.sleep(1)
-                spawn_initial_bots(config.bots)
-            threading.Thread(target=delayed_bot_spawn, daemon=True).start()
+            existing_lobby_count = len(lobby.players)
+            bots_to_spawn = max(0, config.bots - existing_lobby_count)
+            if bots_to_spawn > 0:
+                import threading
+                def delayed_bot_spawn():
+                    import time
+                    time.sleep(1)
+                    _spawn_bots_for_lobby(bots_to_spawn)
+                threading.Thread(target=delayed_bot_spawn, daemon=True).start()
+                logger.info(f"🤖 Will spawn {bots_to_spawn} bot(s) ({existing_lobby_count} player(s) already in lobby)")
+            elif existing_lobby_count > 0:
+                logger.info(f"👥 {existing_lobby_count} player(s) already in lobby — no bots needed")
     
     def required_players(self) -> int:
         return config.arenas * 2
@@ -1162,13 +1185,6 @@ class GameRoom:
         """Returns True if game is running OR match completed (still in current round)."""
         return self.game.running or self.match_complete
 
-    def get_available_slot(self) -> Optional[int]:
-        if 1 not in self.connections:
-            return 1
-        if 2 not in self.connections:
-            return 2
-        return None
-
     async def connect_player(self, player_id: int, websocket: WebSocket):
         self.connections[player_id] = websocket
         logger.info(f"✅ [Room {self.room_id}] Player {player_id} connected ({len(self.connections)} player(s))")
@@ -1193,7 +1209,6 @@ class GameRoom:
         self.connections[player_id] = player_info.websocket
         self.competition_players[player_id] = player_info
         self.names[player_id] = player_info.name
-        self.ready.add(player_id)
         
         # Notify player of their assignment
         try:
@@ -1571,32 +1586,6 @@ class RoomManager:
         self.rooms: dict[int, GameRoom] = {}
         self._matchmaking_lock = asyncio.Lock()
         self.lobby_observers: list[WebSocket] = []  # Observers waiting for a game
-    
-    async def find_or_create_room(self) -> tuple[Optional[GameRoom], int]:
-        """Thread-safe matchmaking: find a waiting room or create a new one."""
-        async with self._matchmaking_lock:
-            # First, try to find a waiting room
-            for room in self.rooms.values():
-                if room.is_waiting_for_player():
-                    player_id = room.get_available_slot() or 2
-                    return room, player_id
-            
-            # No waiting room, create a new one
-            for room_id in range(1, self.MAX_ROOMS + 1):
-                if room_id not in self.rooms or self.rooms[room_id].is_empty():
-                    room = GameRoom(room_id, self)
-                    self.rooms[room_id] = room
-                    logger.info(f"🏠 Room {room_id} created ({len([r for r in self.rooms.values() if not r.is_empty()])} active rooms)")
-                    return room, 1
-            
-            return None, 0
-    
-    def find_waiting_room(self) -> Optional[GameRoom]:
-        """Find a room waiting for a second player."""
-        for room in self.rooms.values():
-            if room.is_waiting_for_player():
-                return room
-        return None
     
     def find_active_room(self) -> Optional[GameRoom]:
         """Find any room with an active game (for observers)."""
@@ -2120,46 +2109,6 @@ async def compete(websocket: WebSocket):
         await competition.unregister_player(player.uid)
 
 
-# Legacy endpoint for backward compatibility
-@app.websocket("/ws/{player_id}")
-async def websocket_endpoint(websocket: WebSocket, player_id: int):
-    """Legacy endpoint - redirects to join."""
-    await websocket.accept()
-    
-    if player_id not in (1, 2):
-        await websocket.close(code=4000, reason="Invalid player_id. Use /ws/join instead.")
-        return
-    
-    # Find or create a room
-    room = None
-    if player_id == 2:
-        room = room_manager.find_waiting_room()
-    
-    if not room:
-        room = room_manager.create_room()
-        if not room:
-            await websocket.close(code=4002, reason="Server full")
-            return
-        player_id = 1  # Override to player 1 for new room
-    else:
-        player_id = room.get_available_slot() or 2
-    
-    await room.connect_player(player_id, websocket)
-    await websocket.send_json({
-        "type": "joined",
-        "room_id": room.room_id,
-        "player_id": player_id
-    })
-    
-    try:
-        while True:
-            data = await websocket.receive_json()
-            await room.handle_message(player_id, data)
-    except WebSocketDisconnect:
-        await room.disconnect_player(player_id)
-        room_manager.cleanup_empty_rooms()
-
-
 @app.get("/")
 async def root():
     return {"name": "CopperHead Server", "status": "running"}
@@ -2196,29 +2145,6 @@ async def competition_status():
 async def championship_history():
     """Get history of completed championships."""
     return {"championships": Competition.championship_history}
-
-
-@app.post("/add_bot")
-async def add_bot(difficulty: int = None):
-    """Add a CopperBot to the first available room."""
-    # Find a room waiting for a player
-    room = room_manager.find_waiting_room()
-    if not room:
-        # No waiting room - check if we can create one
-        total_players = sum(len(r.connections) for r in room_manager.rooms.values())
-        if total_players >= config.arenas * 2:
-            return {"success": False, "message": "All player slots filled"}
-        # Create a new room for the bot
-        room = room_manager.create_room()
-        if not room:
-            return {"success": False, "message": "Cannot create room"}
-    
-    # Use provided difficulty or random
-    if difficulty is None or difficulty < 1 or difficulty > 10:
-        difficulty = random.randint(1, 10)
-    room._spawn_bot(difficulty)
-    
-    return {"success": True, "message": f"CopperBot L{difficulty} added to Room {room.room_id}"}
 
 
 # ============================================================================
@@ -2581,33 +2507,6 @@ def apply_config(args):
                 config.fruits[fruit_type]["lifetime"] = props.get("lifetime", 0)
 
 
-def spawn_initial_bots(count: int):
-    """Spawn initial bots at server start."""
-    if count <= 0:
-        return
-    
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_path = os.path.join(script_dir, "copperbot.py")
-    
-    codespace_name = os.environ.get("CODESPACE_NAME")
-    github_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
-    
-    if codespace_name:
-        server_url = f"wss://{codespace_name}-8765.{github_domain}/ws/"
-    else:
-        server_url = "ws://localhost:8765/ws/"
-    
-    for i in range(count):
-        difficulty = random.randint(1, 10)
-        try:
-            subprocess.Popen(
-                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty), "--quiet", "--skip-wait"],
-                cwd=script_dir
-            )
-            logger.info(f"🤖 Spawned CopperBot L{difficulty} ({i+1}/{count})")
-        except Exception as e:
-            logger.error(f"❌ Failed to spawn bot: {e}")
-
 
 def _spawn_bots_for_lobby(count: int, difficulty: int = None):
     """Spawn CopperBots to fill empty tournament slots in lobby mode.
@@ -2651,6 +2550,6 @@ if __name__ == "__main__":
     logger.info(f"   Speed: {config.tick_rate}s/tick")
     logger.info(f"   Bots: {config.bots}")
     
-    # Note: Bots are spawned by start_waiting() during server startup
+    # Note: Bots are spawned by start_waiting() at each competition start
     
     uvicorn.run(app, host=args.host, port=args.port)
