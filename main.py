@@ -76,6 +76,23 @@ app.add_middleware(
 )
 
 
+def _update_readme_admin_url(admin_url: str):
+    """Replace {{ADMIN_URL}} placeholder in README.md with the actual admin URL."""
+    import re
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    readme_path = os.path.join(script_dir, "README.md")
+    try:
+        with open(readme_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        if "{{ADMIN_URL}}" in content:
+            content = content.replace("{{ADMIN_URL}}", admin_url)
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            logger.info("✓ Updated README.md with admin URL")
+    except Exception as e:
+        logger.warning(f"Could not update README.md with admin URL: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("🐍 CopperHead Server started")
@@ -127,6 +144,11 @@ async def startup_event():
     logger.info(f"🔑 Admin console: {admin_client_url}")
     if codespace_name:
         logger.info(f"⚠️  Remember to make port 8765 PUBLIC in the Ports tab!")
+    
+    # In Codespaces, update README.md with the admin URL
+    # (start.py already inserted the template with {{ADMIN_URL}} placeholder)
+    if codespace_name:
+        _update_readme_admin_url(admin_client_url)
     
     # Start config file watcher for auto-restart on config changes
     if _config_file_path:

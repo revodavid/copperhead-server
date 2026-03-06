@@ -2,6 +2,8 @@
 
 **[Click here to play!]({{CLIENT_URL}})**
 
+🔑 **[Admin console]({{ADMIN_URL}})**
+
 Or copy this Server URL into the client:
 ```
 {{SERVER_URL}}

@@ -70,6 +70,7 @@ def update_readme_with_url(ws_url):
         
         block_content = template.replace("{{CLIENT_URL}}", client_url)
         block_content = block_content.replace("{{SERVER_URL}}", ws_url)
+        # {{ADMIN_URL}} is left as-is — main.py fills it after generating the admin token
         
         # Wrap in markers for replacement on subsequent runs
         marker_start = "<!-- CODESPACE_CONNECTION_START -->"
