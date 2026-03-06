@@ -2,6 +2,11 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [4.0.0] - 2026-03-06
+
+### Changed
+- **BREAKING**: Lobby join action renamed from "ready" to "join"
+
 ## [3.7.0] - 2026-03-05
 
 ### Added
