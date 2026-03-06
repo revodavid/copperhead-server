@@ -1854,13 +1854,12 @@ async def _handle_lobby_join(websocket: WebSocket):
     player_info = None
     
     try:
-        # Wait for the player to send a "ready" action with their name
-        # (same protocol as non-lobby mode)
+        # Wait for the player to send a "join" action with their name
         while True:
             data = await websocket.receive_json()
             action = data.get("action")
             
-            if action == "ready":
+            if action == "join":
                 name = data.get("name", "Player")
                 player_info = await lobby.join(name, websocket)
                 
@@ -2074,61 +2073,6 @@ async def observe_game(websocket: WebSocket):
     except WebSocketDisconnect:
         if current_room:
             current_room.disconnect_observer(websocket)
-
-
-@app.websocket("/ws/compete")
-async def compete(websocket: WebSocket):
-    """Join a competition. Waits in lobby until enough players, then starts tournament."""
-    await websocket.accept()
-    
-    # Get player name from first message
-    try:
-        data = await websocket.receive_json()
-        name = data.get("name", "Anonymous")
-    except Exception:
-        await websocket.close(code=4001, reason="Expected name message")
-        return
-    
-    # Register for competition
-    player = await competition.register_player(name, websocket)
-    
-    if not player:
-        await websocket.send_json({
-            "type": "error",
-            "message": "Competition not accepting players (in progress or full)"
-        })
-        await websocket.close(code=4003, reason="Competition not available")
-        return
-    
-    # Send confirmation
-    await websocket.send_json({
-        "type": "registered",
-        "uid": player.uid,
-        "name": player.name,
-        "competition_status": competition.get_status()
-    })
-    
-    try:
-        while True:
-            data = await websocket.receive_json()
-            action = data.get("action")
-            
-            # Handle move commands during games
-            if action == "move" and player.current_room:
-                direction = data.get("direction")
-                if direction in ("up", "down", "left", "right"):
-                    player_id = player.current_player_id
-                    if player_id and player_id in player.current_room.game.snakes:
-                        player.current_room.game.snakes[player_id].queue_direction(direction)
-            
-            # Handle ready for next game
-            elif action == "ready" and player.current_room:
-                player.current_room.ready.add(player.current_player_id)
-                if len(player.current_room.ready) >= 2 and not player.current_room.game.running:
-                    await player.current_room.start_game()
-                    
-    except WebSocketDisconnect:
-        await competition.unregister_player(player.uid)
 
 
 @app.get("/")

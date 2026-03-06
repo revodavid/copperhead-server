@@ -136,11 +136,9 @@ class RobotPlayer:
             
         self.running = True
         
-        # Send ready message immediately so the server knows our name
-        # (In lobby mode, the server waits for this before adding us to the lobby)
+        # Send join message so the server adds us to the lobby
         await self.ws.send(json.dumps({
-            "action": "ready",
-            "mode": "two_player",
+            "action": "join",
             "name": self.name
         }))
         

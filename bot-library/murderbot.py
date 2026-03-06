@@ -80,9 +80,9 @@ class RobotPlayer:
             self.log(f"Connecting to {url}...")
             self.ws = await websockets.connect(url)
             self.log("Connected! Joining lobby...")
-            # Send ready message to join the lobby
+            # Send join message to enter the lobby
             await self.ws.send(json.dumps({
-                "action": "ready",
+                "action": "join",
                 "name": self.name
             }))
             return True
@@ -417,7 +417,7 @@ class RobotPlayer:
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="CopperHead Robot Player")
+    parser = argparse.ArgumentParser(description="MurderBot Robot Player")
     parser.add_argument("--server", "-s", default="ws://localhost:8765/ws/",
                         help="Server WebSocket URL (default: ws://localhost:8765/ws/)")
     parser.add_argument("--name", "-n", default=None,

@@ -1,12 +1,14 @@
 ## 🎮 Play Now!
 
-**[Click here to play!]({{CLIENT_URL}})**
+**CodeSpaces Server ready!**
 
-🔑 **[Admin console]({{ADMIN_URL}})**
+⚠️ Make sure port 8765 is **Public** (Ports tab → right-click → Port Visibility → Public)
 
-Or copy this Server URL into the client:
+🔑 **Click here to play** (Administrator mode):[{{ADMIN_URL}}]({{ADMIN_URL}})
+
+👥 **Share this URL with a friend** to play: [{{CLIENT_URL}}]({{CLIENT_URL}})
+
+Or, copy this Server URL into the client:
 ```
 {{SERVER_URL}}
 ```
-
-⚠️ Make sure port 8765 is **Public** (Ports tab → right-click → Port Visibility → Public)
