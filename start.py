@@ -52,37 +52,32 @@ def get_connection_info():
     return ws_url, is_codespace
 
 def update_readme_with_url(ws_url):
-    """Update README.md with the actual WebSocket URL for this Codespace."""
+    """Update README.md with connection info from README-Codespaces.md template."""
     import urllib.parse
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
     readme_path = os.path.join(script_dir, "README.md")
+    template_path = os.path.join(script_dir, "README-Codespaces.md")
     
     # Build client URL with server parameter
     client_base = "https://revodavid.github.io/copperhead-client/"
     client_url = f"{client_base}?server={urllib.parse.quote(ws_url, safe='')}"
     
     try:
-        with open(readme_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        # Read the template and substitute placeholders
+        with open(template_path, "r", encoding="utf-8") as f:
+            template = f.read()
         
-        # Check if there's already a connection info section, replace it
+        block_content = template.replace("{{CLIENT_URL}}", client_url)
+        block_content = block_content.replace("{{SERVER_URL}}", ws_url)
+        
+        # Wrap in markers for replacement on subsequent runs
         marker_start = "<!-- CODESPACE_CONNECTION_START -->"
         marker_end = "<!-- CODESPACE_CONNECTION_END -->"
+        connection_block = f"{marker_start}\n{block_content}\n{marker_end}"
         
-        connection_block = f"""{marker_start}
-## 🎮 Play Now!
-
-**[Click here to play!]({client_url})**
-
-Or copy this Server URL into the client:
-```
-{ws_url}
-```
-
-⚠️ Make sure port 8765 is **Public** (Ports tab → right-click → Port Visibility → Public)
-
-{marker_end}"""
+        with open(readme_path, "r", encoding="utf-8") as f:
+            content = f.read()
         
         if marker_start in content:
             # Replace existing block
@@ -92,7 +87,7 @@ Or copy this Server URL into the client:
         else:
             # Insert after the first heading line
             lines = content.split("\n")
-            insert_idx = 1  # After first line
+            insert_idx = 1
             for i, line in enumerate(lines):
                 if line.startswith("# "):
                     insert_idx = i + 1
@@ -105,6 +100,8 @@ Or copy this Server URL into the client:
         
         log(f"{GREEN}✓ Updated README.md with your connection URL{RESET}")
         
+    except FileNotFoundError:
+        log(f"{YELLOW}Note: README-Codespaces.md template not found, skipping README update{RESET}")
     except Exception as e:
         # Don't fail startup if README update fails
         log(f"{YELLOW}Note: Could not update README.md: {e}{RESET}")
