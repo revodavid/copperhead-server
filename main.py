@@ -489,12 +489,10 @@ class Competition:
             existing_lobby_count = len(lobby.players)
             bots_to_spawn = max(0, config.bots - existing_lobby_count)
             if bots_to_spawn > 0:
-                import threading
-                def delayed_bot_spawn():
-                    import time
-                    time.sleep(1)
+                async def delayed_bot_spawn():
+                    await asyncio.sleep(1)
                     _spawn_bots_for_lobby(bots_to_spawn)
-                threading.Thread(target=delayed_bot_spawn, daemon=True).start()
+                asyncio.create_task(delayed_bot_spawn())
                 logger.info(f"🤖 Will spawn {bots_to_spawn} bot(s) ({existing_lobby_count} player(s) already in lobby)")
             elif existing_lobby_count > 0:
                 logger.info(f"👥 {existing_lobby_count} player(s) already in lobby — no bots needed")
@@ -682,7 +680,6 @@ class Competition:
     async def report_match_complete(self, room: "GameRoom", winner_uid: str, 
                                      p1_uid: str, p2_uid: str, p1_points: int, p2_points: int):
         """Called when a match (first to points_to_win) completes."""
-        import time
         async with self._lock:
             try:
                 result = MatchResult(p1_uid, p2_uid, winner_uid, p1_points, p2_points)
@@ -702,7 +699,7 @@ class Competition:
                 winner.match_wins += 1
                 winner.game_points += p1_points if winner_uid == p1_uid else p2_points
                 winner.opponent_points += p2_points if winner_uid == p1_uid else p1_points
-                winner.last_match_finish_time = time.time()  # Track for Bye tiebreaker
+                winner.last_match_finish_time = datetime.now().timestamp()  # Track for Bye tiebreaker
                 loser.game_points += p2_points if winner_uid == p1_uid else p1_points
                 loser.opponent_points += p1_points if winner_uid == p1_uid else p2_points
                 loser.eliminated = True
@@ -739,10 +736,9 @@ class Competition:
         
         if len(winners) == 1:
             # We have a champion!
-            import time
             self.champion_uid = winners[0]
             self.state = CompetitionState.COMPLETE
-            self.reset_start_time = time.time()  # Start countdown immediately
+            self.reset_start_time = datetime.now().timestamp()  # Start countdown immediately
             champion = self.players[self.champion_uid]
             logger.info(f"🎉 Competition complete! Champion: {champion.name}")
             
@@ -782,11 +778,10 @@ class Competition:
         
         # If there was a Bye player, they auto-advance to next round's results
         if bye_player:
-            import time
             # Create a "Bye" result - player advances without playing
             bye_result = MatchResult(bye_player.uid, bye_player.uid, bye_player.uid, 0, 0)
             self.match_results[self.current_round - 1].append(bye_result)
-            bye_player.last_match_finish_time = time.time()
+            bye_player.last_match_finish_time = datetime.now().timestamp()
             logger.info(f"🎫 {bye_player.name} auto-advances via Bye")
         
         await self._broadcast_competition_status()
@@ -852,7 +847,6 @@ class Competition:
     
     def get_status(self) -> dict:
         """Get current competition status."""
-        import time
         bye_player_name = None
         if self.current_bye_uid and self.current_bye_uid in self.players:
             bye_player_name = self.players[self.current_bye_uid].name
@@ -860,7 +854,7 @@ class Competition:
         # Calculate remaining reset time
         reset_in = 0
         if self.reset_start_time and self.state == CompetitionState.COMPLETE:
-            elapsed = time.time() - self.reset_start_time
+            elapsed = datetime.now().timestamp() - self.reset_start_time
             reset_in = max(0, int(config.reset_delay - elapsed))
         
         # Count players: use competition registrations, or count from rooms
@@ -982,7 +976,34 @@ class Game:
         self.foods: list[dict] = []  # List of {"x": int, "y": int, "type": str, "lifetime": int or None}
         self.running = False
         self.winner: Optional[int] = None
+        self.end_reason: Optional[str] = None
         self.ticks_since_last_fruit = config.fruit_interval  # Allow immediate first spawn
+        self.ticks_since_last_collection = 0
+
+    def _record_fruit_collection(self):
+        """Reset the no-fruit timer after a fruit is collected."""
+        self.ticks_since_last_collection = 0
+
+    def _end_for_stalemate(self):
+        """End the game because no fruit has been collected within the timeout."""
+        self.running = False
+        self.end_reason = "stalemate"
+
+        snake_list = list(self.snakes.values())
+        if len(snake_list) != 2:
+            self.winner = None
+            return
+
+        s1, s2 = snake_list
+        s1_len = len(s1.body)
+        s2_len = len(s2.body)
+
+        if s1_len > s2_len:
+            self.winner = s1.player_id
+        elif s2_len > s1_len:
+            self.winner = s2.player_id
+        else:
+            self.winner = None
 
     def choose_fruit_type(self) -> Optional[str]:
         """Choose a random fruit type based on propensity weights. Returns None if no fruits configured."""
@@ -1058,6 +1079,7 @@ class Game:
         if not self.running:
             return
 
+        fruit_collected_this_tick = False
         for snake in self.snakes.values():
             if snake.alive:
                 # Calculate where the snake will actually move to (accounting for input queue)
@@ -1081,7 +1103,13 @@ class Game:
                 snake.move(grow)
                 if food:
                     self.remove_food_at(next_head)
+                    fruit_collected_this_tick = True
                     # New food will spawn via spawn_food_if_needed() in update_food_lifetimes()
+
+        if fruit_collected_this_tick:
+            self._record_fruit_collection()
+        else:
+            self.ticks_since_last_collection += 1
 
         # Check collisions
         for snake in self.snakes.values():
@@ -1150,6 +1178,8 @@ class Game:
                     self.winner = None
             else:
                 self.winner = None  # Draw (fallback)
+        elif self.ticks_since_last_collection * config.tick_rate >= config.game_timeout:
+            self._end_for_stalemate()
 
     def to_dict(self) -> dict:
         # Only report lifetime if within warning threshold
@@ -1518,17 +1548,33 @@ class GameRoom:
                 self.game.update_food_lifetimes()
                 await self.broadcast_state()
                 if not self.game.running:
-                    if self.game.winner:
+                    if self.game.end_reason == "stalemate":
+                        if self.game.winner:
+                            logger.info(f"⏱️ [Room {self.room_id}] Game over by stalemate! Winner: {self.names.get(self.game.winner, 'Unknown')}")
+                        else:
+                            logger.info(f"⏱️ [Room {self.room_id}] Game over by stalemate! Draw.")
+                    elif self.game.winner:
                         self.wins[self.game.winner] += 1
                         logger.info(f"🏆 [Room {self.room_id}] Game over! Winner: {self.names.get(self.game.winner, 'Unknown')}")
                     else:
                         logger.info(f"🏁 [Room {self.room_id}] Game over! Draw.")
+
+                    if self.game.winner and self.game.end_reason == "stalemate":
+                        self.wins[self.game.winner] += 1
                     
                     # Check for match completion (first to points_to_win)
                     match_winner = self._check_match_complete()
                     logger.info(f"🔍 [Room {self.room_id}] Match check: wins={self.wins}, points_to_win={config.points_to_win}, match_winner={match_winner}")
                     
-                    await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins, "names": self.names, "room_id": self.room_id, "points_to_win": config.points_to_win})
+                    await self.broadcast({
+                        "type": "gameover",
+                        "winner": self.game.winner,
+                        "wins": self.wins,
+                        "names": self.names,
+                        "room_id": self.room_id,
+                        "points_to_win": config.points_to_win,
+                        "end_reason": self.game.end_reason,
+                    })
                     
                     if match_winner:
                         # Clear game_task before advancing so clear_all_rooms()

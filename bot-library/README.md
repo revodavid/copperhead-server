@@ -9,6 +9,7 @@ See [How-To-Build-Your-Own-Bot.md](../How-To-Build-Your-Own-Bot.md) for instruct
 ## Included Bots
 
 * [`murderbot.py`](murderbot.py) Aggressively chases down the opponent to try and cause a collision. By @nonfamousd
+* [`sleepy_snake.py`](sleepy_snake.py) Wanders around the arena, avoids danger, and only becomes more food-aware at higher difficulty levels.
 
 ## Bot requirements
 

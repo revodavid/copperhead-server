@@ -6,6 +6,7 @@ All notable changes to the CopperHead Server are documented in this file.
 
 ### Added
 - Configurable `game-timeout` ready timeout that disconnects players who do not signal ready before a game starts
+- Stalemate rule: if no fruit is collected within `game-timeout` seconds, the longer snake wins the game or it ends in a draw if both snakes are the same length
 
 ### Changed
 - Version bump to 4.0.1

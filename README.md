@@ -64,7 +64,7 @@ If the configuration file is modified while the server is running, the server wi
 
 * `--reset-delay`: Once a competition is complete, the server will wait this many seconds before resetting. At reset the competition restarts: active bots are terminated, new bots are spawned according to the `--bots` setting (minus any human players already in the lobby), and the server begins accepting new players. 
 
-* `--game-timeout`: Maximum number of seconds a player may wait before signaling ready for a game. If a player times out, the server disconnects them and their opponent wins by forfeit. Default is 30.
+* `--game-timeout`: Maximum number of seconds a player may wait before signaling ready for a game, or the maximum time a game may continue without either snake collecting a fruit. If the ready timeout expires, the inactive player is disconnected and forfeits. If the in-game fruit timeout expires, the current game ends as a stalemate and the longer snake wins. Equal lengths produce a draw. Default is 30.
 
 * `--grid-size`: Size of the game grid as WIDTHxHEIGHT. 
 
@@ -93,7 +93,9 @@ The `"never"`option is especially useful for [hosting Bot Hack Tournaments](How-
 
 #### `game-timeout`
 
-`game-timeout` sets the ready timeout, in seconds, for each game in a match. If a player does not send the `ready` action before the timeout expires, the server disconnects that player and awards the match to the opponent by forfeit. The default is `30`.
+`game-timeout` sets two time limits, in seconds, for each game in a match. Before the game starts, it is the ready timeout: if a player does not send the `ready` action before the timeout expires, the server disconnects that player and awards the game to the opponent by forfeit.
+
+During gameplay, `game-timeout` is also the stalemate timeout. If neither snake collects any fruit before the timeout expires, the current game ends immediately. The longer snake wins that game, and if both snakes are the same length, the game is a draw. The default is `30`.
 
 For backward compatibility, the server also accepts the older `kick-time` and `kick_time` setting names.
 
