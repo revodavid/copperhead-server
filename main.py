@@ -28,6 +28,7 @@ class ServerConfig:
     arenas: int = 1
     points_to_win: int = 5
     reset_delay: int = 10
+    game_timeout: int = 30
     grid_width: int = 30
     grid_height: int = 20
     tick_rate: float = 0.15
@@ -1182,6 +1183,7 @@ class GameRoom:
         self.observers: list[WebSocket] = []
         self.ready: set[int] = set()
         self.game_task: Optional[asyncio.Task] = None
+        self.ready_timeout_task: Optional[asyncio.Task] = None
         self.bot_process: Optional[subprocess.Popen] = None
         self.wins: dict[int, int] = {1: 0, 2: 0}
         self.names: dict[int, str] = {1: "Player 1", 2: "Player 2"}
@@ -1206,6 +1208,75 @@ class GameRoom:
     def is_active(self) -> bool:
         """Returns True if game is running OR match completed (still in current round)."""
         return self.game.running or self.match_complete
+
+    def _players_missing_ready(self) -> list[int]:
+        """Return connected player IDs that have not signaled ready yet."""
+        return sorted(pid for pid in self.connections if pid not in self.ready)
+
+    def _cancel_ready_timeout(self):
+        """Stop the active ready timeout task, if any."""
+        current_task = asyncio.current_task()
+        if (
+            self.ready_timeout_task
+            and self.ready_timeout_task is not current_task
+            and not self.ready_timeout_task.done()
+        ):
+            self.ready_timeout_task.cancel()
+        self.ready_timeout_task = None
+
+    def _start_ready_timeout(self):
+        """Start a ready timeout for the current game start, if needed."""
+        if self.ready_timeout_task and not self.ready_timeout_task.done():
+            return
+        if self.match_complete or self.game.running or len(self.connections) < 2:
+            return
+        if not self._players_missing_ready():
+            return
+        self.ready_timeout_task = asyncio.create_task(self._run_ready_timeout())
+
+    async def _run_ready_timeout(self):
+        """Wait for the configured ready timeout, then disconnect idle players."""
+        try:
+            await asyncio.sleep(config.game_timeout)
+            await self._handle_ready_timeout()
+        except asyncio.CancelledError:
+            return
+        finally:
+            if asyncio.current_task() is self.ready_timeout_task:
+                self.ready_timeout_task = None
+
+    async def _handle_ready_timeout(self):
+        """Disconnect a player who did not signal ready in time."""
+        if self.match_complete or self.game.running:
+            return
+
+        missing_players = self._players_missing_ready()
+        if not missing_players:
+            return
+
+        timed_out_player_id = missing_players[0]
+        timed_out_name = self.names.get(timed_out_player_id, f"Player {timed_out_player_id}")
+        logger.info(
+            f"⏱️ [Arena {self.room_id}] {timed_out_name} did not signal ready within "
+            f"{config.game_timeout} seconds and will be disconnected"
+        )
+
+        websocket = self.connections.get(timed_out_player_id)
+        if websocket:
+            timeout_message = (
+                f"You were disconnected because you did not signal ready within "
+                f"{config.game_timeout} seconds."
+            )
+            try:
+                await websocket.send_json({"type": "error", "message": timeout_message})
+            except Exception:
+                pass
+            try:
+                await websocket.close(code=4008, reason="Ready timeout")
+            except Exception:
+                pass
+
+        await self.disconnect_player(timed_out_player_id)
 
     async def connect_player(self, player_id: int, websocket: WebSocket):
         self.connections[player_id] = websocket
@@ -1249,6 +1320,9 @@ class GameRoom:
             logger.error(f"❌ [Arena {self.room_id}] Failed to notify {player_info.name}: {e}")
         
         logger.info(f"✅ [Arena {self.room_id}] {player_info.name} assigned as Player {player_id}, ready={len(self.ready)}, game.running={self.game.running}")
+
+        if len(self.connections) >= 2 and not self.game.running:
+            self._start_ready_timeout()
         
         # Start game when both players are connected
         if len(self.ready) >= 2 and not self.game.running:
@@ -1259,6 +1333,7 @@ class GameRoom:
         was_game_running = self.game.running
         opponent_id = 3 - player_id  # 1 -> 2, 2 -> 1
         opponent_connected = opponent_id in self.connections
+        self._cancel_ready_timeout()
         
         self.connections.pop(player_id, None)
         self.ready.discard(player_id)
@@ -1371,6 +1446,7 @@ class GameRoom:
                         "type": "waiting",
                         "message": "Waiting for Player 2..."
                     })
+                self._start_ready_timeout()
 
     def _spawn_bot(self, difficulty: int):
         """Spawn a CopperBot process to play against the human player."""
@@ -1414,6 +1490,7 @@ class GameRoom:
             logger.warning(f"⚠️ [Room {self.room_id}] start_game called but match winner exists (wins={self.wins}), ignoring")
             return
         
+        self._cancel_ready_timeout()
         self.game = Game(mode="two_player")
         self.game.running = True
         
@@ -1524,6 +1601,7 @@ class GameRoom:
     
     async def _wait_for_ready(self):
         """Wait for both players to signal ready, then start the next game."""
+        self._start_ready_timeout()
         while len(self.ready) < 2:
             # Check if match is already complete (shouldn't start another game)
             if self.match_complete:
@@ -1555,6 +1633,7 @@ class GameRoom:
             logger.warning(f"⚠️ [Arena {self.room_id}] _start_next_game called but match winner exists, ignoring")
             return
         
+        self._cancel_ready_timeout()
         self.game = Game(mode="two_player")
         self.game.running = True
         
@@ -1814,6 +1893,7 @@ class RoomManager:
             "grid_width": config.grid_width,
             "grid_height": config.grid_height,
             "points_to_win": config.points_to_win,
+            "game_timeout": config.game_timeout,
             "bots": config.bots,
             "fruits": active_fruits,
             "rooms": [
@@ -2245,6 +2325,10 @@ def parse_args():
         help="Seconds to wait before resetting after competition ends. Default: 10"
     )
     parser.add_argument(
+        "--game-timeout", dest="game_timeout", type=int, default=None,
+        help="Seconds a player may wait before signaling ready. Default: 30"
+    )
+    parser.add_argument(
         "--grid-size", type=str, default=None,
         help="Grid size as WIDTHxHEIGHT. Default: 30x20"
     )
@@ -2279,6 +2363,19 @@ def load_spec_file(spec_file: str) -> dict:
         return {}
 
 
+def get_spec_value(spec: dict, *keys: str, default=None):
+    """Return the first matching config value from a spec dictionary."""
+    for key in keys:
+        if key in spec:
+            return spec[key]
+    return default
+
+
+def get_game_timeout_value(spec: dict, default=None):
+    """Return the configured game timeout, accepting legacy key names too."""
+    return get_spec_value(spec, "game-timeout", "kick-time", "kick_time", default=default)
+
+
 def validate_spec(spec: dict) -> bool:
     """Validate that a spec dictionary has valid values. Returns True if valid."""
     if not spec:
@@ -2293,6 +2390,10 @@ def validate_spec(spec: dict) -> bool:
         return False
     if "reset_delay" in spec and (not isinstance(spec["reset_delay"], int) or spec["reset_delay"] < 0):
         logger.error("Invalid config: 'reset_delay' must be a non-negative integer")
+        return False
+    game_timeout = get_game_timeout_value(spec)
+    if game_timeout is not None and (not isinstance(game_timeout, int) or game_timeout < 0):
+        logger.error("Invalid config: 'game-timeout' must be a non-negative integer")
         return False
     if "speed" in spec and (not isinstance(spec["speed"], (int, float)) or spec["speed"] <= 0):
         logger.error("Invalid config: 'speed' must be a positive number")
@@ -2323,6 +2424,9 @@ def apply_spec_to_config(spec: dict):
         config.points_to_win = spec["points_to_win"]
     if "reset_delay" in spec:
         config.reset_delay = spec["reset_delay"]
+    game_timeout = get_game_timeout_value(spec)
+    if game_timeout is not None:
+        config.game_timeout = game_timeout
     if "speed" in spec:
         config.tick_rate = spec["speed"]
     if "bots" in spec:
@@ -2433,6 +2537,11 @@ def apply_config(args):
     config.arenas = args.arenas if args.arenas is not None else spec.get("arenas", 1)
     config.points_to_win = args.points_to_win if args.points_to_win is not None else spec.get("points_to_win", 5)
     config.reset_delay = args.reset_delay if args.reset_delay is not None else spec.get("reset_delay", 10)
+    config.game_timeout = (
+        args.game_timeout
+        if args.game_timeout is not None
+        else get_game_timeout_value(spec, default=30)
+    )
     config.tick_rate = args.speed if args.speed is not None else spec.get("speed", 0.15)
     config.bots = args.bots if args.bots is not None else spec.get("bots", 0)
     

@@ -2,6 +2,7 @@
     "arenas": 1,
     "points_to_win": 5,
     "reset_delay": 15,
+    "game-timeout": 30,
     "grid_size": "20x16",
     "speed": 0.12,
     "bots": 0,

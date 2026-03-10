@@ -4,6 +4,9 @@ All notable changes to the CopperHead Server are documented in this file.
 
 ## [4.0.1] - 2026-06-26
 
+### Added
+- Configurable `game-timeout` ready timeout that disconnects players who do not signal ready before a game starts
+
 ### Changed
 - Version bump to 4.0.1
 

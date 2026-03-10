@@ -2,6 +2,7 @@
     "arenas": 6,
     "points_to_win": 2,
     "reset_delay": 5,
+    "auto_start": "always",
     "grid_size": "20x16",
     "speed": 0.05,
     "bots": 12,
