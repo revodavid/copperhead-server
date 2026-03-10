@@ -2,11 +2,12 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
-## [4.0.1] - 2026-06-26
+## [4.0.1] - 2026-03-10
 
 ### Added
 - Configurable `game-timeout` ready timeout that disconnects players who do not signal ready before a game starts
 - Stalemate rule: if no fruit is collected within `game-timeout` seconds, the longer snake wins the game or it ends in a draw if both snakes are the same length
+- Sleepy Snake bot in bot-library: a wandering bot with difficulty levels 1-10 that avoids food at low difficulty and drifts toward food at higher difficulty
 
 ### Changed
 - Version bump to 4.0.1
