@@ -1341,7 +1341,8 @@ class GameRoom:
                     "room_id": self.room_id,
                     "player_id": player_id,
                     "opponent": self.names[3 - player_id] if (3 - player_id) in self.names else "Opponent",
-                    "points_to_win": config.points_to_win
+                    "points_to_win": config.points_to_win,
+                    "game": self.game.to_dict()
                 })
                 logger.info(f"📤 [Arena {self.room_id}] Sent match_assigned to {player_info.name}")
             else:
