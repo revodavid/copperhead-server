@@ -1302,7 +1302,7 @@ class GameRoom:
             except Exception:
                 pass
             try:
-                await websocket.close(code=4008, reason="Ready timeout")
+                await websocket.close(code=4008, reason=f"Ready timeout: {config.game_timeout}s")
             except Exception:
                 pass
 
