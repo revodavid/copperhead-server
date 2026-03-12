@@ -1,6 +1,6 @@
 # CopperHead Server
 
-Version: 4.0.0
+Version: 4.0.1
 
 A server for a 2-player Snake game.The CopperHead server manages game state and multi-round knockout competitions, communicating with human and robot clients via WebSocket API.
 
@@ -64,6 +64,8 @@ If the configuration file is modified while the server is running, the server wi
 
 * `--reset-delay`: Once a competition is complete, the server will wait this many seconds before resetting. At reset the competition restarts: active bots are terminated, new bots are spawned according to the `--bots` setting (minus any human players already in the lobby), and the server begins accepting new players. 
 
+* `--game-timeout`: Maximum number of seconds a player may wait before signaling ready for a game, or the maximum time a game may continue without either snake collecting a fruit. If the ready timeout expires, the inactive player is disconnected and forfeits. If the in-game fruit timeout expires, the current game ends as a stalemate and the longer snake wins. Equal lengths produce a draw. Default is 30.
+
 * `--grid-size`: Size of the game grid as WIDTHxHEIGHT. 
 
 * `--speed`: The tick rate of the game in seconds per frame. The default is suitable for human players. Lower values increase game speed.
@@ -88,6 +90,14 @@ The `auto_start` setting in `server-settings.json` controls how players are admi
 - **`"never"`** — The admin manually assigns players to slots (via **Admit**) and starts the competition. Full manual control.
 
 The `"never"`option is especially useful for [hosting Bot Hack Tournaments](How-To-Host-A-Bot-Hack-Tournament.md) where the host needs to manage players and coordinate when play begins.
+
+#### `game-timeout`
+
+`game-timeout` sets two time limits, in seconds, for each game in a match. Before the game starts, it is the ready timeout: if a player does not send the `ready` action before the timeout expires, the server disconnects that player and awards the game to the opponent by forfeit.
+
+During gameplay, `game-timeout` is also the stalemate timeout. If neither snake collects any fruit before the timeout expires, the current game ends immediately. The longer snake wins that game, and if both snakes are the same length, the game is a draw. The default is `30`.
+
+For backward compatibility, the server also accepts the older `kick-time` and `kick_time` setting names.
 
 ## Bot Opponents
 
