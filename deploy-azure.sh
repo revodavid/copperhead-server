@@ -19,7 +19,7 @@ set -euo pipefail
 # Configuration
 # -------------------------------
 RESOURCE_GROUP="${RESOURCE_GROUP:-copperhead-rg}"
-LOCATION="${LOCATION:-eastus}"
+LOCATION="${LOCATION:-westus2}"
 ACR_NAME="${ACR_NAME:-copperheadacr}"              # Must be globally unique and lowercase.
 APP_NAME="${APP_NAME:-copperhead-server}"
 ENVIRONMENT="${ENVIRONMENT:-copperhead-env}"

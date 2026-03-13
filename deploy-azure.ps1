@@ -17,7 +17,7 @@ $ErrorActionPreference = "Stop"
 # Configuration
 # -------------------------------
 $ResourceGroup   = if ($env:RESOURCE_GROUP)   { $env:RESOURCE_GROUP }   else { "copperhead-rg" }
-$Location        = if ($env:LOCATION)         { $env:LOCATION }         else { "eastus" }
+$Location        = if ($env:LOCATION)         { $env:LOCATION }         else { "westus2" }
 $AcrName         = if ($env:ACR_NAME)         { $env:ACR_NAME }         else { "copperheadacr" }   # Must be globally unique and lowercase.
 $AppName         = if ($env:APP_NAME)         { $env:APP_NAME }         else { "copperhead-server" }
 $Environment     = if ($env:ENVIRONMENT)      { $env:ENVIRONMENT }      else { "copperhead-env" }
