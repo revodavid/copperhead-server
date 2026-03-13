@@ -148,15 +148,22 @@ CopperHead Server can be deployed to [Azure Container Apps](https://learn.micros
 
 On Linux/macOS or in Codespaces, use `bash deploy-azure.sh` instead.
 
-This creates all Azure resources (Container Registry, Container Apps environment, and the app itself) and deploys the server. The script prints the public URL when finished.
+This creates all Azure resources (Container Registry, Storage Account, Container Apps environment, and the app itself) and deploys the server. The script prints the public URL when finished.
 
 **Continuous deployment:**
 
 A GitHub Actions workflow (`.github/workflows/deploy-azure.yml`) automatically rebuilds and redeploys on every push to `main`. See the workflow file for setup instructions (Azure credentials, service principal).
 
-**Updating server settings:**
+**Updating server settings (no redeploy needed):**
 
-Edit `server-settings.json` and rerun `.\deploy-azure.ps1` (or `bash deploy-azure.sh`) to rebuild and redeploy with the new configuration.
+`server-settings.json` is stored on an Azure File Share, so you can edit it without redeploying:
+
+1. Open the [Azure Portal](https://portal.azure.com)
+2. Go to **Storage Accounts** → `copperheadstore` → **File shares** → `copperhead-config`
+3. Click `server-settings.json` → **Edit**
+4. Save — the server auto-reloads within seconds
+
+The server log file (`server-log.txt`) is also on the same file share for easy access.
 
 **Useful commands:**
 

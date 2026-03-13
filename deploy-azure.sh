@@ -10,8 +10,9 @@
 #
 # Notes:
 #   - This script uses 'az acr build', so Docker does not need to be installed locally.
-#   - server-settings.json is baked into the image. If you change it, rerun this script
-#     to rebuild the image and redeploy the app.
+#   - server-settings.json is stored on an Azure File Share so you can edit it
+#     from the Azure Portal (Storage Browser) without redeploying.
+#   - The server log file is also written to the file share for easy access.
 
 set -euo pipefail
 
@@ -30,6 +31,9 @@ CPU="${CPU:-0.5}"
 MEMORY="${MEMORY:-1.0Gi}"
 MIN_REPLICAS="${MIN_REPLICAS:-1}"
 MAX_REPLICAS="${MAX_REPLICAS:-1}"
+STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-copperheadstore}"  # Must be globally unique and lowercase.
+FILE_SHARE_NAME="copperhead-config"
+MOUNT_PATH="/app/config"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REGISTRY_SERVER="${ACR_NAME}.azurecr.io"
@@ -125,6 +129,41 @@ else
 fi
 print_success "Azure Container Registry is ready."
 
+print_section "Creating Azure Storage Account and File Share"
+echo "Creating storage account '${STORAGE_ACCOUNT}' for server-settings.json and log files..."
+if az storage account show --name "${STORAGE_ACCOUNT}" --resource-group "${RESOURCE_GROUP}" >/dev/null 2>&1; then
+    print_info "Storage account already exists. Reusing it."
+else
+    az storage account create \
+        --name "${STORAGE_ACCOUNT}" \
+        --resource-group "${RESOURCE_GROUP}" \
+        --location "${LOCATION}" \
+        --sku Standard_LRS \
+        --output table
+fi
+
+STORAGE_KEY="$(az storage account keys list --account-name "${STORAGE_ACCOUNT}" --resource-group "${RESOURCE_GROUP}" --query "[0].value" -o tsv)"
+
+if az storage share show --name "${FILE_SHARE_NAME}" --account-name "${STORAGE_ACCOUNT}" --account-key "${STORAGE_KEY}" >/dev/null 2>&1; then
+    print_info "File share already exists. Reusing it."
+else
+    az storage share create \
+        --name "${FILE_SHARE_NAME}" \
+        --account-name "${STORAGE_ACCOUNT}" \
+        --account-key "${STORAGE_KEY}" \
+        --output table
+fi
+
+echo "Uploading server-settings.json to file share..."
+az storage file upload \
+    --share-name "${FILE_SHARE_NAME}" \
+    --account-name "${STORAGE_ACCOUNT}" \
+    --account-key "${STORAGE_KEY}" \
+    --source "${SCRIPT_DIR}/server-settings.json" \
+    --path "server-settings.json" \
+    --output none
+print_success "Storage account and file share are ready."
+
 print_section "Building Docker image in Azure"
 echo "Building the '${IMAGE_NAME}:${IMAGE_TAG}' image in ACR with 'az acr build' so no local Docker install is needed..."
 az acr build \
@@ -146,53 +185,90 @@ else
 fi
 print_success "Container Apps environment is ready."
 
+print_section "Linking file share to Container Apps environment"
+echo "Adding storage '${STORAGE_ACCOUNT}' to environment '${ENVIRONMENT}'..."
+az containerapp env storage remove \
+    --name "${ENVIRONMENT}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --storage-name copperheadfiles >/dev/null 2>&1 || true
+az containerapp env storage set \
+    --name "${ENVIRONMENT}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --storage-name copperheadfiles \
+    --azure-file-account-name "${STORAGE_ACCOUNT}" \
+    --azure-file-account-key "${STORAGE_KEY}" \
+    --azure-file-share-name "${FILE_SHARE_NAME}" \
+    --access-mode ReadWrite \
+    --output table
+print_success "File share linked to environment."
+
 print_section "Creating Container App"
 echo "Creating or updating the Container App '${APP_NAME}' with external ingress on port ${CONTAINER_PORT}..."
 echo "Using min replicas = ${MIN_REPLICAS} and max replicas = ${MAX_REPLICAS} so the game server stays warm and does not scale out unexpectedly."
 echo "Using revision suffix '${REVISION_SUFFIX}' so each deployment creates a fresh Container Apps revision, even when reusing the same image tag."
+echo "Mounting file share at ${MOUNT_PATH} for server-settings.json and log files."
 
 ACR_USERNAME="$(az acr credential show --name "${ACR_NAME}" --query username -o tsv)"
 ACR_PASSWORD="$(az acr credential show --name "${ACR_NAME}" --query 'passwords[0].value' -o tsv)"
+YAML_PATH="$(mktemp)"
+cleanup_yaml() {
+    rm -f "${YAML_PATH}"
+}
+trap cleanup_yaml EXIT
+
+cat > "${YAML_PATH}" <<EOF
+properties:
+  configuration:
+    ingress:
+      external: true
+      targetPort: ${CONTAINER_PORT}
+      transport: auto
+    registries:
+      - server: ${REGISTRY_SERVER}
+        username: ${ACR_USERNAME}
+        passwordSecretRef: acr-password
+    secrets:
+      - name: acr-password
+        value: ${ACR_PASSWORD}
+  template:
+    revisionSuffix: ${REVISION_SUFFIX}
+    scale:
+      minReplicas: ${MIN_REPLICAS}
+      maxReplicas: ${MAX_REPLICAS}
+    containers:
+      - name: ${APP_NAME}
+        image: ${IMAGE}
+        resources:
+          cpu: ${CPU}
+          memory: ${MEMORY}
+        command: ["python", "main.py", "${MOUNT_PATH}/server-settings.json", "--log-file", "${MOUNT_PATH}/server-log.txt"]
+        volumeMounts:
+          - volumeName: config-volume
+            mountPath: ${MOUNT_PATH}
+    volumes:
+      - name: config-volume
+        storageType: AzureFile
+        storageName: copperheadfiles
+EOF
 
 if az containerapp show --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" >/dev/null 2>&1; then
-    print_info "Container App already exists. Updating it to the newly built image and the desired scale settings."
+    print_info "Container App already exists. Updating with volume mount."
     az containerapp update \
         --name "${APP_NAME}" \
         --resource-group "${RESOURCE_GROUP}" \
-        --image "${IMAGE}" \
-        --revision-suffix "${REVISION_SUFFIX}" \
-        --cpu "${CPU}" \
-        --memory "${MEMORY}" \
-        --min-replicas "${MIN_REPLICAS}" \
-        --max-replicas "${MAX_REPLICAS}" \
-        --output table
-
-    az containerapp ingress update \
-        --name "${APP_NAME}" \
-        --resource-group "${RESOURCE_GROUP}" \
-        --type external \
-        --target-port "${CONTAINER_PORT}" \
-        --transport auto \
+        --yaml "${YAML_PATH}" \
         --output table
 else
     az containerapp create \
         --name "${APP_NAME}" \
         --resource-group "${RESOURCE_GROUP}" \
         --environment "${ENVIRONMENT}" \
-        --image "${IMAGE}" \
-        --revision-suffix "${REVISION_SUFFIX}" \
-        --ingress external \
-        --target-port "${CONTAINER_PORT}" \
-        --transport auto \
-        --min-replicas "${MIN_REPLICAS}" \
-        --max-replicas "${MAX_REPLICAS}" \
-        --cpu "${CPU}" \
-        --memory "${MEMORY}" \
-        --registry-server "${REGISTRY_SERVER}" \
-        --registry-username "${ACR_USERNAME}" \
-        --registry-password "${ACR_PASSWORD}" \
+        --yaml "${YAML_PATH}" \
         --output table
 fi
+
+rm -f "${YAML_PATH}"
+trap - EXIT
 print_success "Container App deployment completed."
 
 print_section "Fetching deployed URL"
@@ -230,18 +306,26 @@ cat <<EOF
 View logs:
   az containerapp logs show --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" --follow --format text
 
+View server log file (from file share):
+  az storage file download --share-name "${FILE_SHARE_NAME}" --account-name "${STORAGE_ACCOUNT}" --path server-log.txt --dest ./server-log.txt --account-key <key>
+
+Edit server-settings.json:
+  1. Open the Azure Portal: https://portal.azure.com
+  2. Go to Storage Accounts > ${STORAGE_ACCOUNT} > File shares > ${FILE_SHARE_NAME}
+  3. Click server-settings.json > Edit
+  4. Save — the server will auto-reload within seconds
+
+  Or from the command line:
+  az storage file download --share-name "${FILE_SHARE_NAME}" --account-name "${STORAGE_ACCOUNT}" --path server-settings.json --dest ./server-settings-downloaded.json --account-key <key>
+  # Edit the file, then upload:
+  az storage file upload --share-name "${FILE_SHARE_NAME}" --account-name "${STORAGE_ACCOUNT}" --source ./server-settings-downloaded.json --path server-settings.json --account-key <key>
+
 Restart the latest active revision:
   REVISION_NAME=\$(az containerapp revision list --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" --query "[?properties.active].name | [0]" -o tsv)
   az containerapp revision restart --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" --revision "\$REVISION_NAME"
 
-Update server-settings.json and redeploy:
-  # Edit server-settings.json in this folder, then run:
+Redeploy (after code changes):
   bash deploy-azure.sh
-
-  # If you only want the raw Azure commands, these are the important ones:
-  REVISION_SUFFIX="r\$(date -u +%y%m%d%H%M%S)"
-  az acr build --registry "${ACR_NAME}" --image "${IMAGE_NAME}:${IMAGE_TAG}" "${SCRIPT_DIR}"
-  az containerapp update --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" --image "${IMAGE}" --revision-suffix "\$REVISION_SUFFIX"
 
 Delete all deployed resources:
   az group delete --name "${RESOURCE_GROUP}" --yes --no-wait
