@@ -134,25 +134,43 @@ For local servers, use: `ws://localhost:8765/ws`
 
 ### Deploy to Azure
 
-CopperHead Server can be deployed to [Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/) for a publicly accessible game server with continuous deployment.
+CopperHead Server (and optionally the client) can be deployed to [Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/) for a publicly accessible game server.
 
 **Prerequisites:**
 - An Azure subscription ([free trial](https://azure.microsoft.com/free/))
 - [Azure CLI](https://aka.ms/azure-cli) installed and logged in (`az login`)
+- Both `copperhead-server` and `copperhead-client` repos cloned side by side (same parent directory)
 
-**Initial deployment:**
+**Deployment overview:**
+
+The deploy script creates the following Azure resources:
+- **Azure Container Registry** — stores the Docker image
+- **Azure Storage Account + File Share** — holds `server-settings.json` and `server-log.txt`
+- **Azure Container Apps environment + app** — runs the server container
+
+If the `copperhead-client` directory is found alongside `copperhead-server`, the client files are automatically bundled into the Docker image. The server serves them at the root URL, so players can access both the client and server from a single URL.
+
+**Step 1: Configure Azure settings**
+
+Copy `server-settings.json` to `server-settings.azure.json` and customize it for your Azure deployment. This file is gitignored so your Azure-specific settings (like `admin_token`) stay private.
 
 ```powershell
+copy server-settings.json server-settings.azure.json
+# Edit server-settings.azure.json with your desired settings
+```
+
+**Step 2: Deploy**
+
+```powershell
+# Copy Azure settings into place and deploy
+copy server-settings.azure.json server-settings.json
 .\deploy-azure.ps1
+git checkout server-settings.json   # Restore the original
 ```
 
 On Linux/macOS or in Codespaces, use `bash deploy-azure.sh` instead.
 
-This creates all Azure resources (Container Registry, Storage Account, Container Apps environment, and the app itself) and deploys the server. The script prints the public URL when finished.
-
-**Continuous deployment:**
-
-A GitHub Actions workflow (`.github/workflows/deploy-azure.yml`) automatically rebuilds and redeploys on every push to `main`. See the workflow file for setup instructions (Azure credentials, service principal).
+The script prints the public URL when finished. If the client was bundled, players can visit the URL directly in a browser to play.
 
 **Updating server settings (no redeploy needed):**
 
@@ -165,6 +183,10 @@ A GitHub Actions workflow (`.github/workflows/deploy-azure.yml`) automatically r
 
 The server log file (`server-log.txt`) is also on the same file share for easy access.
 
+**Redeploying (after code changes):**
+
+Run the deploy script again. It rebuilds the Docker image, re-bundles the client, uploads the settings, and updates the container app. The URL stays the same.
+
 **Useful commands:**
 
 ```bash
@@ -174,6 +196,10 @@ az containerapp logs show --name copperhead-server --resource-group copperhead-r
 # Delete all Azure resources when done
 az group delete --name copperhead-rg --yes --no-wait
 ```
+
+**Continuous deployment:**
+
+A GitHub Actions workflow (`.github/workflows/deploy-azure.yml`) automatically rebuilds and redeploys on every push to `main`. See the workflow file for setup instructions (Azure credentials, service principal).
 
 ## API
 
