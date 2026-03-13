@@ -2280,8 +2280,18 @@ async def observe_game(websocket: WebSocket):
             current_room.disconnect_observer(websocket)
 
 
+# Check if client files are bundled (e.g. Azure deployment)
+_client_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client")
+_has_client = os.path.isdir(_client_dir)
+
+
 @app.get("/")
 async def root():
+    # Serve the client's index.html if client files are bundled into the container.
+    # Otherwise return the API status JSON (for Codespaces/local dev).
+    if _has_client:
+        from fastapi.responses import FileResponse
+        return FileResponse(os.path.join(_client_dir, "index.html"))
     return {"name": "CopperHead Server", "status": "running"}
 
 
