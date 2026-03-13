@@ -164,6 +164,23 @@ az storage file upload \
     --output none
 print_success "Storage account and file share are ready."
 
+# Bundle client files into the server image if the client repo is alongside the server repo
+CLIENT_SRC="$(dirname "${SCRIPT_DIR}")/copperhead-client"
+CLIENT_DST="${SCRIPT_DIR}/client"
+
+if [ -d "${CLIENT_SRC}" ]; then
+    print_section "Bundling client files"
+    echo "Copying client from ${CLIENT_SRC} into server image..."
+    rm -rf "${CLIENT_DST}"
+    mkdir -p "${CLIENT_DST}"
+    # Copy everything except .git and .github
+    rsync -a --exclude='.git' --exclude='.github' --exclude='node_modules' "${CLIENT_SRC}/" "${CLIENT_DST}/" 2>/dev/null \
+        || cp -r "${CLIENT_SRC}"/* "${CLIENT_DST}/" 2>/dev/null
+    print_success "Client files bundled. The server will serve them at the root URL."
+else
+    print_info "No copperhead-client directory found alongside copperhead-server. Client will not be bundled."
+fi
+
 print_section "Building Docker image in Azure"
 echo "Building the '${IMAGE_NAME}:${IMAGE_TAG}' image in ACR with 'az acr build' so no local Docker install is needed..."
 az acr build \
@@ -171,6 +188,11 @@ az acr build \
     --image "${IMAGE_NAME}:${IMAGE_TAG}" \
     "${SCRIPT_DIR}"
 print_success "Docker image build completed."
+
+# Clean up bundled client files after build
+if [ -d "${CLIENT_DST}" ]; then
+    rm -rf "${CLIENT_DST}"
+fi
 
 print_section "Creating Container Apps environment"
 echo "Creating the Container Apps environment '${ENVIRONMENT}' (safe to rerun if it already exists)..."

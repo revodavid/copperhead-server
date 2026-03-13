@@ -152,13 +152,35 @@ az storage file upload `
 
 Write-Ok "Storage account and file share are ready."
 
-# --- Step 5: Build Docker image in Azure ---
+# --- Step 5: Bundle client files (if available) ---
+
+$clientSrc = Join-Path (Split-Path $ScriptDir) "copperhead-client"
+$clientDst = Join-Path $ScriptDir "client"
+
+if (Test-Path $clientSrc) {
+    Write-Section "Bundling client files"
+    Write-Host "Copying client from $clientSrc into server image..."
+    if (Test-Path $clientDst) { Remove-Item $clientDst -Recurse -Force }
+    New-Item -ItemType Directory -Path $clientDst -Force | Out-Null
+    Get-ChildItem $clientSrc -Exclude ".git",".github","node_modules" |
+        Copy-Item -Destination $clientDst -Recurse -Force
+    Write-Ok "Client files bundled. The server will serve them at the root URL."
+} else {
+    Write-Info "No copperhead-client directory found alongside copperhead-server. Client will not be bundled."
+}
+
+# --- Step 6: Build Docker image in Azure ---
 
 Write-Section "Building Docker image in Azure"
 Write-Host "Building the '${ImageName}:${ImageTag}' image in ACR with 'az acr build' so no local Docker install is needed..."
 az acr build --registry $AcrName --image "${ImageName}:${ImageTag}" $ScriptDir
 if ($LASTEXITCODE -ne 0) { Write-Err "Docker image build failed."; exit 1 }
 Write-Ok "Docker image build completed."
+
+# Clean up bundled client files after build
+if (Test-Path $clientDst) {
+    Remove-Item $clientDst -Recurse -Force
+}
 
 # --- Step 6: Create Container Apps environment ---
 
