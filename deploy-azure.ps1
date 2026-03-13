@@ -179,7 +179,7 @@ Write-Ok "Container Apps environment is ready."
 Write-Section "Linking file share to Container Apps environment"
 Write-Host "Adding storage '$StorageAccount' to environment '$Environment'..."
 # Remove existing link if present (safe to fail)
-az containerapp env storage remove --name $Environment --resource-group $ResourceGroup --storage-name copperheadfiles 2>&1 | Out-Null
+az containerapp env storage remove --name $Environment --resource-group $ResourceGroup --storage-name copperheadfiles --yes 2>&1 | Out-Null
 az containerapp env storage set `
     --name $Environment `
     --resource-group $ResourceGroup `

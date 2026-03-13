@@ -190,7 +190,7 @@ echo "Adding storage '${STORAGE_ACCOUNT}' to environment '${ENVIRONMENT}'..."
 az containerapp env storage remove \
     --name "${ENVIRONMENT}" \
     --resource-group "${RESOURCE_GROUP}" \
-    --storage-name copperheadfiles >/dev/null 2>&1 || true
+    --storage-name copperheadfiles --yes >/dev/null 2>&1 || true
 az containerapp env storage set \
     --name "${ENVIRONMENT}" \
     --resource-group "${RESOURCE_GROUP}" \
