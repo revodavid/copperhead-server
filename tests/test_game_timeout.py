@@ -9,7 +9,6 @@ Usage:
 import os
 import sys
 import unittest
-from unittest.mock import patch
 
 
 SERVER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,9 +21,11 @@ import main
 class GameTimeoutStalemateTests(unittest.TestCase):
     def setUp(self):
         self.original_game_timeout = main.config.game_timeout
+        self.original_tick_rate = main.config.tick_rate
 
     def tearDown(self):
         main.config.game_timeout = self.original_game_timeout
+        main.config.tick_rate = self.original_tick_rate
 
     def _create_running_game(self, snake1_body, snake2_body):
         game = main.Game()
@@ -35,14 +36,14 @@ class GameTimeoutStalemateTests(unittest.TestCase):
 
     def test_stalemate_awards_game_to_longer_snake(self):
         main.config.game_timeout = 30
+        main.config.tick_rate = 1.0
         game = self._create_running_game(
             [(5, 8), (4, 8), (3, 8), (2, 8)],
             [(14, 9), (15, 9)],
         )
-        game.last_fruit_collection_time = 10.0
+        game.ticks_since_last_collection = 29  # becomes 30 after update(), triggering stalemate
 
-        with patch.object(main.time, "monotonic", return_value=40.0):
-            game.update()
+        game.update()
 
         self.assertFalse(game.running)
         self.assertEqual(game.end_reason, "stalemate")
@@ -50,14 +51,14 @@ class GameTimeoutStalemateTests(unittest.TestCase):
 
     def test_stalemate_ends_equal_lengths_as_draw(self):
         main.config.game_timeout = 30
+        main.config.tick_rate = 1.0
         game = self._create_running_game(
             [(5, 8), (4, 8), (3, 8)],
             [(14, 9), (15, 9), (16, 9)],
         )
-        game.last_fruit_collection_time = 5.0
+        game.ticks_since_last_collection = 29  # becomes 30 after update(), triggering stalemate
 
-        with patch.object(main.time, "monotonic", return_value=35.0):
-            game.update()
+        game.update()
 
         self.assertFalse(game.running)
         self.assertEqual(game.end_reason, "stalemate")
@@ -65,15 +66,15 @@ class GameTimeoutStalemateTests(unittest.TestCase):
 
     def test_collecting_fruit_resets_stalemate_timer(self):
         main.config.game_timeout = 30
+        main.config.tick_rate = 1.0
         game = self._create_running_game(
             [(5, 8), (4, 8), (3, 8)],
             [(14, 9), (15, 9), (16, 9)],
         )
-        game.last_fruit_collection_time = 0.0
+        game.ticks_since_last_collection = 29  # would trigger stalemate without fruit collection
         game.foods = [{"x": 6, "y": 8, "type": "apple", "lifetime": None}]
 
-        with patch.object(main.time, "monotonic", return_value=30.0):
-            game.update()
+        game.update()
 
         self.assertTrue(game.running)
         self.assertIsNone(game.end_reason)
