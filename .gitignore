@@ -23,4 +23,6 @@ Thumbs.db
 *.log
 server-settings.local.json
 server-settings.azure.json
+server-log.txt
+client/
 

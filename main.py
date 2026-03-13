@@ -12,6 +12,7 @@ import sys
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from typing import Optional
 from enum import Enum
 
@@ -2798,5 +2799,13 @@ if __name__ == "__main__":
     logger.info(f"   Bots: {config.bots}")
     
     # Note: Bots are spawned by start_waiting() at each competition start
+    
+    # Serve client files from a "client" subdirectory if it exists.
+    # This is used in Azure deployments where the client is bundled into the container.
+    # In Codespaces/local dev, the client runs separately and this directory won't exist.
+    client_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client")
+    if os.path.isdir(client_dir):
+        app.mount("/", StaticFiles(directory=client_dir, html=True), name="client")
+        logger.info(f"🌐 Serving client from {client_dir}")
     
     uvicorn.run(app, host=args.host, port=args.port)
