@@ -72,6 +72,8 @@ If the configuration file is modified while the server is running, the server wi
 
 * `--bots`: Number of AI opponents to pre-populate the lobby with at the start of each competition. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels. Human players who are already in the lobby reduce the number of bots spawned. With `auto_start: "always"` and `bots` equal to or greater than the number of required players, the game runs continuously.
 
+* `--log-file`: Path to the log file for recording significant server events (player joins/disconnects, tournament milestones, admin token, URLs). Default is `server-log.txt`. This can also be set in `server-settings.json` as `"log_file"`.
+
 ### Server Settings File options
 
 The command line options may alternatively provided in a server settings file. See `server-settings.json` for defaults that will be used if no command-line options are provided.
