@@ -183,13 +183,35 @@ if ($LASTEXITCODE -eq 0) {
 }
 Write-Ok "Container App deployment completed."
 
-# --- Step 8: Print the deployed URL ---
+# --- Step 8: Print the deployed URL and admin console link ---
 
 Write-Section "Fetching deployed URL"
 $Fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
 
 Write-Host "HTTP URL:      https://$Fqdn"
 Write-Host "WebSocket URL: wss://$Fqdn"
+
+# Wait for the container to start, then extract the admin token from the logs.
+Write-Host ""
+Write-Host "Waiting for server to start..."
+Start-Sleep 15
+$adminToken = az containerapp logs show --name $AppName --resource-group $ResourceGroup --format text --tail 50 2>&1 `
+    | Select-String -Pattern "Admin token: (\w+)" `
+    | ForEach-Object { $_.Matches[0].Groups[1].Value } `
+    | Select-Object -First 1
+
+if ($adminToken) {
+    $wsUrl = [uri]::EscapeDataString("wss://$Fqdn/ws/")
+    $adminUrl = "https://revodavid.github.io/copperhead-client/?server=$wsUrl&admin=$adminToken"
+    Write-Host ""
+    Write-Ok "Admin console:"
+    Write-Host $adminUrl
+} else {
+    Write-Info "Could not find admin token in logs. Check logs manually:"
+    Write-Host "  az containerapp logs show --name $AppName --resource-group $ResourceGroup --format text --tail 30"
+}
+
+Write-Host ""
 Write-Ok "Deployment finished successfully."
 
 # --- Useful management commands ---

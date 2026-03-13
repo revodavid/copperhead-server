@@ -202,6 +202,27 @@ WEBSOCKET_URL="wss://${FQDN}"
 
 echo "HTTP URL:      ${HTTPS_URL}"
 echo "WebSocket URL: ${WEBSOCKET_URL}"
+
+# Wait for the container to start, then extract the admin token from the logs.
+echo ""
+echo "Waiting for server to start..."
+sleep 15
+ADMIN_TOKEN="$(az containerapp logs show --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" --format text --tail 50 2>&1 \
+    | grep -oP 'Admin token: \K\w+' | head -1)"
+
+if [ -n "${ADMIN_TOKEN}" ]; then
+    WS_ENCODED="$(python3 -c "import urllib.parse; print(urllib.parse.quote('wss://${FQDN}/ws/', safe=''))" 2>/dev/null \
+        || echo "wss%3A%2F%2F${FQDN}%2Fws%2F")"
+    ADMIN_URL="https://revodavid.github.io/copperhead-client/?server=${WS_ENCODED}&admin=${ADMIN_TOKEN}"
+    echo ""
+    print_success "Admin console:"
+    echo "${ADMIN_URL}"
+else
+    print_info "Could not find admin token in logs. Check logs manually:"
+    echo "  az containerapp logs show --name ${APP_NAME} --resource-group ${RESOURCE_GROUP} --format text --tail 30"
+fi
+
+echo ""
 print_success "Deployment finished successfully."
 
 print_section "Useful management commands"
