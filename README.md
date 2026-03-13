@@ -130,6 +130,40 @@ python main.py
 
 For local servers, use: `ws://localhost:8765/ws`
 
+### Deploy to Azure
+
+CopperHead Server can be deployed to [Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/) for a publicly accessible game server with continuous deployment.
+
+**Prerequisites:**
+- An Azure subscription ([free trial](https://azure.microsoft.com/free/))
+- [Azure CLI](https://aka.ms/azure-cli) installed and logged in (`az login`)
+
+**Initial deployment:**
+
+```bash
+bash deploy-azure.sh
+```
+
+This creates all Azure resources (Container Registry, Container Apps environment, and the app itself) and deploys the server. The script prints the public URL when finished.
+
+**Continuous deployment:**
+
+A GitHub Actions workflow (`.github/workflows/deploy-azure.yml`) automatically rebuilds and redeploys on every push to `main`. See the workflow file for setup instructions (Azure credentials, service principal).
+
+**Updating server settings:**
+
+Edit `server-settings.json` and rerun `bash deploy-azure.sh` to rebuild and redeploy with the new configuration.
+
+**Useful commands:**
+
+```bash
+# View live server logs
+az containerapp logs show --name copperhead-server --resource-group copperhead-rg --follow --format text
+
+# Delete all Azure resources when done
+az group delete --name copperhead-rg --yes --no-wait
+```
+
 ## API
 
 See [API.md](API.md) for the complete API reference, including WebSocket endpoints, HTTP endpoints, and message formats.
