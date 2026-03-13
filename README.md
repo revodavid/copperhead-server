@@ -140,9 +140,11 @@ CopperHead Server can be deployed to [Azure Container Apps](https://learn.micros
 
 **Initial deployment:**
 
-```bash
-bash deploy-azure.sh
+```powershell
+.\deploy-azure.ps1
 ```
+
+On Linux/macOS or in Codespaces, use `bash deploy-azure.sh` instead.
 
 This creates all Azure resources (Container Registry, Container Apps environment, and the app itself) and deploys the server. The script prints the public URL when finished.
 
@@ -152,7 +154,7 @@ A GitHub Actions workflow (`.github/workflows/deploy-azure.yml`) automatically r
 
 **Updating server settings:**
 
-Edit `server-settings.json` and rerun `bash deploy-azure.sh` to rebuild and redeploy with the new configuration.
+Edit `server-settings.json` and rerun `.\deploy-azure.ps1` (or `bash deploy-azure.sh`) to rebuild and redeploy with the new configuration.
 
 **Useful commands:**
 
