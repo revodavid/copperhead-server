@@ -219,7 +219,7 @@ class MatchResult:
         self.player2_points = player2_points
 
 
-# Admin token for lobby management — generated fresh on each server start
+# Admin token for lobby management — can be set via CLI or config, otherwise generated randomly
 admin_token: str = secrets.token_hex(8)  # 16-character hex string
 
 
@@ -2473,6 +2473,10 @@ def parse_args():
         help="Path to log file for significant events. Default: server-log.txt"
     )
     parser.add_argument(
+        "--admin-token", dest="admin_token", type=str, default=None,
+        help="Admin token for administrator access. If not set, a random token is generated."
+    )
+    parser.add_argument(
         "--host", type=str, default="0.0.0.0",
         help="Host to bind to. Default: 0.0.0.0"
     )
@@ -2539,6 +2543,9 @@ def validate_spec(spec: dict) -> bool:
     if "log_file" in spec and not isinstance(spec["log_file"], str):
         logger.error("Invalid config: 'log_file' must be a string")
         return False
+    if "admin_token" in spec and (not isinstance(spec["admin_token"], str) or len(spec["admin_token"]) == 0):
+        logger.error("Invalid config: 'admin_token' must be a non-empty string")
+        return False
     
     # Validate grid_size format if present
     if "grid_size" in spec:
@@ -2573,6 +2580,12 @@ def apply_spec_to_config(spec: dict):
         config.tournament_countdown = spec["tournament_countdown"]
     if "log_file" in spec:
         config.log_file = spec["log_file"]
+    if "admin_token" in spec:
+        global admin_token
+        old_token = admin_token
+        admin_token = spec["admin_token"]
+        if old_token != admin_token:
+            logger.info(f"🔑 Admin token changed to: {admin_token}")
     if "auto_start" in spec:
         raw = spec["auto_start"]
         if raw is True:
@@ -2693,6 +2706,14 @@ def apply_config(args):
     if args.tournament_countdown is not None:
         config.tournament_countdown = args.tournament_countdown
     config.log_file = args.log_file if args.log_file is not None else spec.get("log_file", "server-log.txt")
+    
+    # Admin token: CLI overrides config file, config file overrides random default
+    global admin_token
+    if args.admin_token is not None:
+        admin_token = args.admin_token
+    elif "admin_token" in spec:
+        admin_token = spec["admin_token"]
+    # Otherwise keep the randomly generated token
     
     # Auto-start: only from spec file (no CLI arg)
     # Accepts string ("always", "admit_only", "never") or bool (true→"always", false→"never")
