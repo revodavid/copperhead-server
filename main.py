@@ -2193,14 +2193,21 @@ async def observe_game(websocket: WebSocket):
     """Observe an active game. Supports switching rooms via messages."""
     await websocket.accept()
     
-    # Find any room with players (active or completed)
-    room = room_manager.find_active_room()
-    if not room:
-        # Try to find any non-empty room (completed games)
-        for r in room_manager.rooms.values():
-            if not r.is_empty():
-                room = r
-                break
+    # Check if a specific room was requested via ?room= query parameter
+    requested_room_id = websocket.query_params.get("room")
+    room = None
+    
+    if requested_room_id and requested_room_id in room_manager.rooms:
+        room = room_manager.rooms[requested_room_id]
+    else:
+        # No specific room requested (or room not found) — find any active room
+        room = room_manager.find_active_room()
+        if not room:
+            # Try to find any non-empty room (completed games)
+            for r in room_manager.rooms.values():
+                if not r.is_empty():
+                    room = r
+                    break
     
     current_room = room
     
