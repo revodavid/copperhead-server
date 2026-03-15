@@ -893,12 +893,36 @@ class Competition:
                 pass
     
     async def _broadcast_competition_complete(self):
-        """Announce competition winner."""
+        """Announce competition winner with their match history."""
         champion = self.players[self.champion_uid]
+        
+        # Build the champion's match history (most recent round first)
+        champion_matches = []
+        for round_idx in range(len(self.match_results) - 1, -1, -1):
+            for result in self.match_results[round_idx]:
+                # Find matches involving the champion
+                if result.winner_uid == self.champion_uid:
+                    if result.player1_uid == self.champion_uid:
+                        opponent_uid = result.player2_uid
+                        champ_score = result.player1_points
+                        opp_score = result.player2_points
+                    else:
+                        opponent_uid = result.player1_uid
+                        champ_score = result.player2_points
+                        opp_score = result.player1_points
+                    opponent_name = self.players[opponent_uid].name if opponent_uid in self.players else "Unknown"
+                    champion_matches.append({
+                        "round": round_idx + 1,
+                        "opponent": opponent_name,
+                        "champion_score": champ_score,
+                        "opponent_score": opp_score
+                    })
+        
         msg = {
             "type": "competition_complete",
             "champion": {"uid": champion.uid, "name": champion.name},
-            "reset_in": config.reset_delay
+            "reset_in": config.reset_delay,
+            "champion_matches": champion_matches
         }
         for player in self.players.values():
             try:
