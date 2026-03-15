@@ -2197,8 +2197,14 @@ async def observe_game(websocket: WebSocket):
     requested_room_id = websocket.query_params.get("room")
     room = None
     
-    if requested_room_id and requested_room_id in room_manager.rooms:
-        room = room_manager.rooms[requested_room_id]
+    if requested_room_id:
+        # Convert to int since room IDs are integers
+        try:
+            room_key = int(requested_room_id)
+            if room_key in room_manager.rooms:
+                room = room_manager.rooms[room_key]
+        except (ValueError, TypeError):
+            pass  # Invalid room ID, fall through to default
     else:
         # No specific room requested (or room not found) — find any active room
         room = room_manager.find_active_room()
