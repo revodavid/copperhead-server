@@ -161,6 +161,10 @@ copy server-settings.json server-settings.azure.json
 
 **Step 2: Deploy**
 
+If you are using [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli), you can simply say **"deploy to azure"** and the `deploy-to-azure` skill (in `.github/skills/`) will handle the full deployment process automatically, including bundling the client, copying Azure settings, deploying, and reporting the URLs.
+
+To deploy manually:
+
 ```powershell
 # Copy Azure settings into place and deploy
 copy server-settings.azure.json server-settings.json
