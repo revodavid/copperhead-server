@@ -181,8 +181,8 @@ The script prints the public URL when finished. If the client was bundled, playe
 `server-settings.json` is stored on an Azure File Share, so you can edit it without redeploying:
 
 1. Open the [Azure Portal](https://portal.azure.com)
-2. Go to **Storage Accounts** → `copperheadstore` → **File shares** → `copperhead-config`
-3. Click `server-settings.json` → **Edit**
+2. Go to **Storage Accounts** → `copperheadstore` → **Data Storage/File shares** → `copperhead-config` → **Browse**
+3. Click `server-settings.json` → **.../Edit**
 4. Save — the server auto-reloads within seconds
 
 The server log file (`server-log.txt`) is also on the same file share for easy access.
