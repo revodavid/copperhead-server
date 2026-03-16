@@ -965,7 +965,7 @@ class Competition:
         if self.state == CompetitionState.WAITING_FOR_PLAYERS and player_count == 0:
             player_count = sum(len(r.connections) for r in room_manager.rooms.values())
 
-        return {
+        result = {
             "state": self.state.value,
             "round": self.current_round if self.current_round > 0 else 1,
             "total_rounds": self._calculate_total_rounds(),
@@ -977,6 +977,12 @@ class Competition:
             "countdown_remaining": self.countdown_remaining,
             "reset_in": reset_in
         }
+        
+        # Include champion's match history when competition is complete
+        if self.state == CompetitionState.COMPLETE and self.champion_uid:
+            result["champion_matches"] = self._get_champion_matches()
+        
+        return result
     
     def get_remaining_matches(self) -> int:
         """Get number of matches remaining in current round."""
