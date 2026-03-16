@@ -2,6 +2,24 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [4.0.2] - 2026-03-16
+
+### Added
+- Tournament countdown timer (`tournament_countdown` setting) — configurable countdown before tournament starts (issue #14)
+- Server log file (`--log-file` option, default `server-log.txt`) — logs significant events to a file (issue #19)
+- Configurable admin token (`--admin-token` option) — set via CLI or `server-settings.json` (issue #20)
+- Azure Container Apps deployment with `deploy-azure.ps1` / `deploy-azure.sh` (issue #15)
+- Azure File Share mount for live editing of `server-settings.json` and viewing logs
+- Client bundling — deploy scripts bundle the client into the server container for single-URL access
+- Dockerfile and GitHub Actions CI/CD workflow
+- Copilot skills (`deploy-to-azure`, `launch-game`, `update-status-messages`)
+- Champion match history in `competition_complete` message and `/competition` endpoint (client issue #19)
+- Match scores included in `/history` endpoint for Recent Winners display
+
+### Fixed
+- Observe button now opens the correct room via `?room=` query parameter (client issue #17)
+- Root URL serves bundled client `index.html` when `client/` directory exists
+
 ## [4.0.1] - 2026-03-10
 
 ### Added
