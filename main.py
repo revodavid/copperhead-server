@@ -12,6 +12,7 @@ import sys
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from typing import Optional
 from enum import Enum
 
@@ -23,6 +24,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger("copperhead")
 
+
+def _setup_file_logging(log_file_path: str):
+    """Add a file handler to the logger so events are written to a log file.
+
+    The file handler uses the same format as console output, but includes the
+    date in the timestamp for long-running servers.
+    """
+    # Remove any existing file handlers to avoid duplicates on config reload.
+    for handler in logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            handler.close()
+            logger.removeHandler(handler)
+
+    try:
+        file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        ))
+        logger.addHandler(file_handler)
+        logger.info(f"📝 Logging to {log_file_path}")
+    except (OSError, IOError) as e:
+        logger.warning(f"⚠️ Could not open log file '{log_file_path}': {e}")
+
+
 # Server configuration (set by CLI args or defaults)
 class ServerConfig:
     arenas: int = 1
@@ -33,6 +60,8 @@ class ServerConfig:
     grid_height: int = 20
     tick_rate: float = 0.15
     bots: int = 0
+    tournament_countdown: int = 0  # Seconds to count down before tournament start. 0 = disabled.
+    log_file: str = "server-log.txt"  # Log file path for significant events
     # Auto-start mode: "always" (auto-admit + auto-start), "admit_only" (auto-admit, admin starts),
     # or "never" (admin admits and starts). Default: "admit_only"
     auto_start: str = "admit_only"
@@ -191,7 +220,7 @@ class MatchResult:
         self.player2_points = player2_points
 
 
-# Admin token for lobby management — generated fresh on each server start
+# Admin token for lobby management — can be set via CLI or config, otherwise generated randomly
 admin_token: str = secrets.token_hex(8)  # 16-character hex string
 
 
@@ -390,6 +419,7 @@ class Lobby:
         assigned_set = set(self.slot_assignments)
         return {
             "auto_start": config.auto_start,
+            "countdown_remaining": competition.countdown_remaining,
             "players": [
                 {"uid": p.uid, "name": p.name, "is_bot": p.is_bot, "in_slot": p.uid in assigned_set}
                 for p in self.players.values()
@@ -438,6 +468,8 @@ class Competition:
         self._lock = asyncio.Lock()
         self._next_uid = 1
         self.reset_start_time: Optional[float] = None  # Track when reset countdown started
+        self.countdown_remaining: int = 0  # Current countdown seconds remaining
+        self._countdown_task: Optional[asyncio.Task] = None  # Background countdown task
     
     def _generate_uid(self) -> str:
         uid = f"P{self._next_uid}"
@@ -458,6 +490,11 @@ class Competition:
         self.champion_uid = None
         self.current_bye_uid = None
         self.reset_start_time = None
+
+        # Cancel any running countdown from the previous tournament cycle.
+        if self._countdown_task and not self._countdown_task.done():
+            self._countdown_task.cancel()
+        self._countdown_task = None
         self._next_uid = 1
         
         if config.auto_start == "always":
@@ -466,6 +503,14 @@ class Competition:
             logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (auto-start: admit_only — admin starts)")
         else:
             logger.info(f"🏆 Competition waiting for {config.arenas * 2} players (auto-start: never — admin controls)")
+
+        # Start tournament countdown if configured.
+        if config.tournament_countdown > 0:
+            self.countdown_remaining = config.tournament_countdown
+            logger.info(f"⏱️ Tournament countdown: {config.tournament_countdown}s")
+            self._countdown_task = asyncio.create_task(self._run_countdown())
+        else:
+            self.countdown_remaining = 0
         
         # Auto-admit existing lobby players to slots if auto_start is "always" or "admit_only"
         # These are players who joined the lobby during the previous competition
@@ -496,7 +541,30 @@ class Competition:
                 logger.info(f"🤖 Will spawn {bots_to_spawn} bot(s) ({existing_lobby_count} player(s) already in lobby)")
             elif existing_lobby_count > 0:
                 logger.info(f"👥 {existing_lobby_count} player(s) already in lobby — no bots needed")
-    
+
+    async def _run_countdown(self):
+        """Run the tournament countdown timer while waiting for players.
+
+        When the timer reaches zero, the tournament either starts automatically
+        or stays ready for an admin to start, depending on auto_start.
+        """
+        try:
+            while self.countdown_remaining > 0 and self.state == CompetitionState.WAITING_FOR_PLAYERS:
+                await asyncio.sleep(1)
+                if self.state != CompetitionState.WAITING_FOR_PLAYERS:
+                    break
+                self.countdown_remaining = max(0, self.countdown_remaining - 1)
+                await lobby._broadcast_lobby_update()
+
+            if self.state == CompetitionState.WAITING_FOR_PLAYERS and self.countdown_remaining <= 0:
+                if config.auto_start == "always":
+                    logger.info("⏱️ Countdown reached zero (auto_start=always) — starting tournament")
+                    await self.start_from_lobby()
+                else:
+                    logger.info("⏱️ Countdown reached zero — tournament ready to start")
+        except asyncio.CancelledError:
+            pass
+
     def required_players(self) -> int:
         return config.arenas * 2
     
@@ -569,6 +637,14 @@ class Competition:
     async def _start_competition(self):
         """Start the competition with all registered players."""
         self.state = CompetitionState.IN_PROGRESS
+
+        # Stop the waiting-room countdown once the tournament actually starts.
+        countdown_task = self._countdown_task
+        self._countdown_task = None
+        self.countdown_remaining = 0
+        if countdown_task and countdown_task is not asyncio.current_task() and not countdown_task.done():
+            countdown_task.cancel()
+
         self.current_round = 1
         
         # Randomly pair players for round 1
@@ -742,11 +818,13 @@ class Competition:
             champion = self.players[self.champion_uid]
             logger.info(f"🎉 Competition complete! Champion: {champion.name}")
             
-            # Record in championship history
+            # Record in championship history (including match scores)
+            champion_matches = self._get_champion_matches()
             Competition.championship_history.append({
                 "champion": champion.name,
                 "players": len(self.players),
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "champion_matches": champion_matches
             })
             
             await self._broadcast_competition_complete()
@@ -816,13 +894,37 @@ class Competition:
             except Exception:
                 pass
     
+    def _get_champion_matches(self) -> list[dict]:
+        """Build the champion's match history (most recent round first)."""
+        champion_matches = []
+        for round_idx in range(len(self.match_results) - 1, -1, -1):
+            for result in self.match_results[round_idx]:
+                if result.winner_uid == self.champion_uid:
+                    if result.player1_uid == self.champion_uid:
+                        opponent_uid = result.player2_uid
+                        champ_score = result.player1_points
+                        opp_score = result.player2_points
+                    else:
+                        opponent_uid = result.player1_uid
+                        champ_score = result.player2_points
+                        opp_score = result.player1_points
+                    opponent_name = self.players[opponent_uid].name if opponent_uid in self.players else "Unknown"
+                    champion_matches.append({
+                        "round": round_idx + 1,
+                        "opponent": opponent_name,
+                        "champion_score": champ_score,
+                        "opponent_score": opp_score
+                    })
+        return champion_matches
+    
     async def _broadcast_competition_complete(self):
-        """Announce competition winner."""
+        """Announce competition winner with their match history."""
         champion = self.players[self.champion_uid]
         msg = {
             "type": "competition_complete",
             "champion": {"uid": champion.uid, "name": champion.name},
-            "reset_in": config.reset_delay
+            "reset_in": config.reset_delay,
+            "champion_matches": self._get_champion_matches()
         }
         for player in self.players.values():
             try:
@@ -863,7 +965,7 @@ class Competition:
         if self.state == CompetitionState.WAITING_FOR_PLAYERS and player_count == 0:
             player_count = sum(len(r.connections) for r in room_manager.rooms.values())
 
-        return {
+        result = {
             "state": self.state.value,
             "round": self.current_round if self.current_round > 0 else 1,
             "total_rounds": self._calculate_total_rounds(),
@@ -872,8 +974,15 @@ class Competition:
             "champion": self.players[self.champion_uid].name if self.champion_uid else None,
             "points_to_win": config.points_to_win,
             "bye_player": bye_player_name,
+            "countdown_remaining": self.countdown_remaining,
             "reset_in": reset_in
         }
+        
+        # Include champion's match history when competition is complete
+        if self.state == CompetitionState.COMPLETE and self.champion_uid:
+            result["champion_matches"] = self._get_champion_matches()
+        
+        return result
     
     def get_remaining_matches(self) -> int:
         """Get number of matches remaining in current round."""
@@ -1928,7 +2037,7 @@ class RoomManager:
         ]
         
         return {
-            "version": "4.0.1",
+            "version": "4.0.2",
             "arenas": config.arenas,
             "max_players": max_players,
             "total_players": total_players,
@@ -1942,6 +2051,7 @@ class RoomManager:
             "points_to_win": config.points_to_win,
             "game_timeout": config.game_timeout,
             "bots": config.bots,
+            "tournament_countdown": config.tournament_countdown,
             "fruits": active_fruits,
             "rooms": [
                 {
@@ -2115,14 +2225,27 @@ async def observe_game(websocket: WebSocket):
     """Observe an active game. Supports switching rooms via messages."""
     await websocket.accept()
     
-    # Find any room with players (active or completed)
-    room = room_manager.find_active_room()
-    if not room:
-        # Try to find any non-empty room (completed games)
-        for r in room_manager.rooms.values():
-            if not r.is_empty():
-                room = r
-                break
+    # Check if a specific room was requested via ?room= query parameter
+    requested_room_id = websocket.query_params.get("room")
+    room = None
+    
+    if requested_room_id:
+        # Convert to int since room IDs are integers
+        try:
+            room_key = int(requested_room_id)
+            if room_key in room_manager.rooms:
+                room = room_manager.rooms[room_key]
+        except (ValueError, TypeError):
+            pass  # Invalid room ID, fall through to default
+    else:
+        # No specific room requested (or room not found) — find any active room
+        room = room_manager.find_active_room()
+        if not room:
+            # Try to find any non-empty room (completed games)
+            for r in room_manager.rooms.values():
+                if not r.is_empty():
+                    room = r
+                    break
     
     current_room = room
     
@@ -2202,8 +2325,18 @@ async def observe_game(websocket: WebSocket):
             current_room.disconnect_observer(websocket)
 
 
+# Check if client files are bundled (e.g. Azure deployment)
+_client_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client")
+_has_client = os.path.isdir(_client_dir)
+
+
 @app.get("/")
 async def root():
+    # Serve the client's index.html if client files are bundled into the container.
+    # Otherwise return the API status JSON (for Codespaces/local dev).
+    if _has_client:
+        from fastapi.responses import FileResponse
+        return FileResponse(os.path.join(_client_dir, "index.html"))
     return {"name": "CopperHead Server", "status": "running"}
 
 
@@ -2388,6 +2521,18 @@ def parse_args():
         help="Number of AI bots to launch at server start. Default: 0"
     )
     parser.add_argument(
+        "--tournament-countdown", dest="tournament_countdown", type=int, default=None,
+        help="Seconds to count down before tournament starts. 0 = disabled. Default: 0"
+    )
+    parser.add_argument(
+        "--log-file", dest="log_file", type=str, default=None,
+        help="Path to log file for significant events. Default: server-log.txt"
+    )
+    parser.add_argument(
+        "--admin-token", dest="admin_token", type=str, default=None,
+        help="Admin token for administrator access. If not set, a random token is generated."
+    )
+    parser.add_argument(
         "--host", type=str, default="0.0.0.0",
         help="Host to bind to. Default: 0.0.0.0"
     )
@@ -2448,6 +2593,15 @@ def validate_spec(spec: dict) -> bool:
     if "bots" in spec and (not isinstance(spec["bots"], int) or spec["bots"] < 0):
         logger.error("Invalid config: 'bots' must be a non-negative integer")
         return False
+    if "tournament_countdown" in spec and (not isinstance(spec["tournament_countdown"], int) or spec["tournament_countdown"] < 0):
+        logger.error("Invalid config: 'tournament_countdown' must be a non-negative integer")
+        return False
+    if "log_file" in spec and not isinstance(spec["log_file"], str):
+        logger.error("Invalid config: 'log_file' must be a string")
+        return False
+    if "admin_token" in spec and (not isinstance(spec["admin_token"], str) or len(spec["admin_token"]) == 0):
+        logger.error("Invalid config: 'admin_token' must be a non-empty string")
+        return False
     
     # Validate grid_size format if present
     if "grid_size" in spec:
@@ -2478,6 +2632,16 @@ def apply_spec_to_config(spec: dict):
         config.tick_rate = spec["speed"]
     if "bots" in spec:
         config.bots = spec["bots"]
+    if "tournament_countdown" in spec:
+        config.tournament_countdown = spec["tournament_countdown"]
+    if "log_file" in spec:
+        config.log_file = spec["log_file"]
+    if "admin_token" in spec:
+        global admin_token
+        old_token = admin_token
+        admin_token = spec["admin_token"]
+        if old_token != admin_token:
+            logger.info(f"🔑 Admin token changed to: {admin_token}")
     if "auto_start" in spec:
         raw = spec["auto_start"]
         if raw is True:
@@ -2545,6 +2709,7 @@ async def watch_config_file():
                 
                 # Apply new config
                 apply_spec_to_config(spec)
+                _setup_file_logging(config.log_file)
                 logger.info(f"✅ Config reloaded: {config.arenas} arenas, {config.points_to_win} points to win, {config.grid_width}x{config.grid_height} grid")
                 
                 # Restart the competition with new settings
@@ -2591,6 +2756,20 @@ def apply_config(args):
     )
     config.tick_rate = args.speed if args.speed is not None else spec.get("speed", 0.15)
     config.bots = args.bots if args.bots is not None else spec.get("bots", 0)
+    config.tournament_countdown = 0
+    if "tournament_countdown" in spec:
+        config.tournament_countdown = spec["tournament_countdown"]
+    if args.tournament_countdown is not None:
+        config.tournament_countdown = args.tournament_countdown
+    config.log_file = args.log_file if args.log_file is not None else spec.get("log_file", "server-log.txt")
+    
+    # Admin token: CLI overrides config file, config file overrides random default
+    global admin_token
+    if args.admin_token is not None:
+        admin_token = args.admin_token
+    elif "admin_token" in spec:
+        admin_token = spec["admin_token"]
+    # Otherwise keep the randomly generated token
     
     # Auto-start: only from spec file (no CLI arg)
     # Accepts string ("always", "admit_only", "never") or bool (true→"always", false→"never")
@@ -2628,6 +2807,8 @@ def apply_config(args):
                 config.fruits[fruit_type]["propensity"] = props.get("propensity", 0)
                 config.fruits[fruit_type]["lifetime"] = props.get("lifetime", 0)
 
+    # Set up log file handler after the full config has been applied.
+    _setup_file_logging(config.log_file)
 
 
 def _spawn_bots_for_lobby(count: int, difficulty: int = None):
@@ -2673,5 +2854,13 @@ if __name__ == "__main__":
     logger.info(f"   Bots: {config.bots}")
     
     # Note: Bots are spawned by start_waiting() at each competition start
+    
+    # Serve client files from a "client" subdirectory if it exists.
+    # This is used in Azure deployments where the client is bundled into the container.
+    # In Codespaces/local dev, the client runs separately and this directory won't exist.
+    client_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client")
+    if os.path.isdir(client_dir):
+        app.mount("/", StaticFiles(directory=client_dir, html=True), name="client")
+        logger.info(f"🌐 Serving client from {client_dir}")
     
     uvicorn.run(app, host=args.host, port=args.port)
