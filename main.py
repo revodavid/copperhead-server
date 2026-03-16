@@ -818,11 +818,13 @@ class Competition:
             champion = self.players[self.champion_uid]
             logger.info(f"🎉 Competition complete! Champion: {champion.name}")
             
-            # Record in championship history
+            # Record in championship history (including match scores)
+            champion_matches = self._get_champion_matches()
             Competition.championship_history.append({
                 "champion": champion.name,
                 "players": len(self.players),
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "champion_matches": champion_matches
             })
             
             await self._broadcast_competition_complete()
@@ -892,15 +894,11 @@ class Competition:
             except Exception:
                 pass
     
-    async def _broadcast_competition_complete(self):
-        """Announce competition winner with their match history."""
-        champion = self.players[self.champion_uid]
-        
-        # Build the champion's match history (most recent round first)
+    def _get_champion_matches(self) -> list[dict]:
+        """Build the champion's match history (most recent round first)."""
         champion_matches = []
         for round_idx in range(len(self.match_results) - 1, -1, -1):
             for result in self.match_results[round_idx]:
-                # Find matches involving the champion
                 if result.winner_uid == self.champion_uid:
                     if result.player1_uid == self.champion_uid:
                         opponent_uid = result.player2_uid
@@ -917,12 +915,16 @@ class Competition:
                         "champion_score": champ_score,
                         "opponent_score": opp_score
                     })
-        
+        return champion_matches
+    
+    async def _broadcast_competition_complete(self):
+        """Announce competition winner with their match history."""
+        champion = self.players[self.champion_uid]
         msg = {
             "type": "competition_complete",
             "champion": {"uid": champion.uid, "name": champion.name},
             "reset_in": config.reset_delay,
-            "champion_matches": champion_matches
+            "champion_matches": self._get_champion_matches()
         }
         for player in self.players.values():
             try:
