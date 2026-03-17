@@ -189,6 +189,7 @@ async def startup_event():
 class CompetitionState(Enum):
     WAITING_FOR_PLAYERS = "waiting_for_players"
     IN_PROGRESS = "in_progress"
+    PAUSED = "paused"
     COMPLETE = "complete"
     RESETTING = "resetting"
 
@@ -470,6 +471,9 @@ class Competition:
         self.reset_start_time: Optional[float] = None  # Track when reset countdown started
         self.countdown_remaining: int = 0  # Current countdown seconds remaining
         self._countdown_task: Optional[asyncio.Task] = None  # Background countdown task
+        # Pause/resume: event is set (unblocked) when running, cleared when paused
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()  # Start unpaused
     
     def _generate_uid(self) -> str:
         uid = f"P{self._next_uid}"
@@ -939,6 +943,38 @@ class Competition:
         await asyncio.sleep(config.reset_delay)
         await self.start_waiting()
         logger.info("🔄 Competition reset - ready for new players")
+
+    async def pause(self) -> tuple[bool, str]:
+        """Pause a running tournament. Game loops will freeze at their next tick."""
+        if self.state != CompetitionState.IN_PROGRESS:
+            return False, f"Cannot pause: competition is {self.state.value}"
+        self.state = CompetitionState.PAUSED
+        self._pause_event.clear()  # Block game loops
+        logger.info("⏸️ Competition paused by admin")
+        await self._broadcast_competition_status()
+        return True, "Competition paused"
+
+    async def resume(self) -> tuple[bool, str]:
+        """Resume a paused tournament."""
+        if self.state != CompetitionState.PAUSED:
+            return False, f"Cannot resume: competition is {self.state.value}"
+        self.state = CompetitionState.IN_PROGRESS
+        self._pause_event.set()  # Unblock game loops
+        logger.info("▶️ Competition resumed by admin")
+        await self._broadcast_competition_status()
+        return True, "Competition resumed"
+
+    async def cancel(self) -> tuple[bool, str]:
+        """Cancel a running or paused tournament. No winner is declared."""
+        if self.state not in (CompetitionState.IN_PROGRESS, CompetitionState.PAUSED):
+            return False, f"Cannot cancel: competition is {self.state.value}"
+        logger.info("❌ Competition cancelled by admin")
+        # Unblock any paused game loops so they can be cancelled cleanly
+        self._pause_event.set()
+        # Clear rooms (stops all games) and reset to waiting state
+        await self.start_waiting()
+        logger.info("🔄 Competition reset after cancellation - ready for new players")
+        return True, "Competition cancelled"
     
     def _calculate_total_rounds(self) -> int:
         """Calculate total rounds needed based on arenas configuration."""
@@ -1653,6 +1689,8 @@ class GameRoom:
     async def game_loop(self):
         try:
             while self.game.running:
+                # Wait if the tournament is paused
+                await competition._pause_event.wait()
                 self.game.update()
                 # Update food lifetimes (in ticks)
                 self.game.update_food_lifetimes()
@@ -2373,6 +2411,15 @@ async def championship_history():
     return {"championships": Competition.championship_history}
 
 
+@app.post("/clear_history")
+async def clear_history(request: Request):
+    """Admin: clear championship history and leaderboard."""
+    _require_admin(request)
+    Competition.championship_history.clear()
+    logger.info("Championship history cleared by admin")
+    return {"success": True, "message": "Championship history cleared"}
+
+
 # ============================================================================
 # Lobby Admin Endpoints (always available)
 # ============================================================================
@@ -2477,6 +2524,36 @@ async def start_tournament(request: Request):
     _require_admin(request)
     
     success, message = await competition.start_from_lobby()
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"success": True, "message": message}
+
+
+@app.post("/pause_tournament")
+async def pause_tournament(request: Request):
+    """Admin: pause the running tournament."""
+    _require_admin(request)
+    success, message = await competition.pause()
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"success": True, "message": message}
+
+
+@app.post("/resume_tournament")
+async def resume_tournament(request: Request):
+    """Admin: resume a paused tournament."""
+    _require_admin(request)
+    success, message = await competition.resume()
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"success": True, "message": message}
+
+
+@app.post("/cancel_tournament")
+async def cancel_tournament(request: Request):
+    """Admin: cancel the tournament. No winner is declared or recorded."""
+    _require_admin(request)
+    success, message = await competition.cancel()
     if not success:
         raise HTTPException(status_code=400, detail=message)
     return {"success": True, "message": message}
