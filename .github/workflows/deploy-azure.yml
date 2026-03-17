@@ -24,9 +24,6 @@
 name: Deploy to Azure
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 env:

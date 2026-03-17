@@ -218,7 +218,9 @@ class SleepySnake:
     def _build_danger_map(self, snakes: dict) -> set[tuple[int, int]]:
         dangerous = set()
         for snake_data in snakes.values():
-            for segment in snake_data.get("body", []):
+            body = snake_data.get("body", [])
+            # Skip the tail segment — it moves away on the next tick
+            for segment in body[:-1]:
                 dangerous.add((segment[0], segment[1]))
         return dangerous
 
