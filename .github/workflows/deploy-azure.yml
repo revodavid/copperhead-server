@@ -1,0 +1,85 @@
+# This workflow deploys the CopperHead server container to Azure Container Apps.
+#
+# Before using this workflow for the first time:
+# 1. Run your deploy-azure.sh script locally to create the Azure resources needed for deployment.
+#    That initial setup should create or confirm the resource group, Azure Container Registry,
+#    and Azure Container App that this workflow updates.
+# 2. Create an Azure service principal (or app registration) with access to the CopperHead resources.
+# 3. Add a federated credential for this GitHub repository so GitHub Actions can sign in with OIDC.
+# 4. Add a GitHub secret named AZURE_CREDENTIALS that contains JSON like this:
+#      {"clientId":"<app-client-id>","tenantId":"<azure-tenant-id>","subscriptionId":"<azure-subscription-id>"}
+#
+# Example setup steps for beginner developers:
+# - Create the app/service principal and grant access to the resource group, for example:
+#     az ad sp create-for-rbac --name "github-copperhead-deploy" --role contributor --scopes /subscriptions/<subscription-id>/resourceGroups/copperhead-rg
+# - In Microsoft Entra ID, add a federated credential for this repository and the main branch.
+#   GitHub branch credentials typically use a subject like:
+#     repo:<owner>/<repo>:ref:refs/heads/main
+# - Save the client ID, tenant ID, and subscription ID in the AZURE_CREDENTIALS secret.
+#
+# Notes:
+# - This workflow uses OIDC, so you do not need to store a client secret in GitHub.
+# - The image is built in Azure Container Registry with both the commit SHA tag and the latest tag.
+
+name: Deploy to Azure
+
+on:
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: copperhead-rg
+  ACR_NAME: copperheadacr
+  APP_NAME: copperhead-server
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          # AZURE_CREDENTIALS should be a JSON secret with clientId, tenantId, and subscriptionId.
+          client-id: ${{ fromJSON(secrets.AZURE_CREDENTIALS).clientId }}
+          tenant-id: ${{ fromJSON(secrets.AZURE_CREDENTIALS).tenantId }}
+          subscription-id: ${{ fromJSON(secrets.AZURE_CREDENTIALS).subscriptionId }}
+
+      - name: Build container image in ACR
+        run: |
+          IMAGE_TAG="${GITHUB_SHA}"
+
+          az acr build \
+            --registry "$ACR_NAME" \
+            --image "$APP_NAME:$IMAGE_TAG" \
+            --image "$APP_NAME:latest" \
+            .
+
+      - name: Deploy image to Azure Container App
+        run: |
+          IMAGE="${ACR_NAME}.azurecr.io/${APP_NAME}:${GITHUB_SHA}"
+
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE"
+
+      - name: Print deployed URL
+        run: |
+          FQDN=$(az containerapp show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+
+          if [ -n "$FQDN" ]; then
+            echo "Deployed URL: https://$FQDN"
+          else
+            echo "Deployment finished, but no public ingress URL is configured for this Container App yet."
+          fi

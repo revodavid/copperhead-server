@@ -72,6 +72,8 @@ If the configuration file is modified while the server is running, the server wi
 
 * `--bots`: Number of AI opponents to pre-populate the lobby with at the start of each competition. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels. Human players who are already in the lobby reduce the number of bots spawned. With `auto_start: "always"` and `bots` equal to or greater than the number of required players, the game runs continuously.
 
+* `--log-file`: Path to the log file for recording significant server events (player joins/disconnects, tournament milestones, admin token, URLs). Default is `server-log.txt`. This can also be set in `server-settings.json` as `"log_file"`.
+
 ### Server Settings File options
 
 The command line options may alternatively provided in a server settings file. See `server-settings.json` for defaults that will be used if no command-line options are provided.
@@ -129,6 +131,79 @@ python main.py
 ```
 
 For local servers, use: `ws://localhost:8765/ws`
+
+### Deploy to Azure
+
+CopperHead Server (and optionally the client) can be deployed to [Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/) for a publicly accessible game server.
+
+**Prerequisites:**
+- An Azure subscription ([free trial](https://azure.microsoft.com/free/))
+- [Azure CLI](https://aka.ms/azure-cli) installed and logged in (`az login`)
+- Both `copperhead-server` and `copperhead-client` repos cloned side by side (same parent directory)
+
+**Deployment overview:**
+
+The deploy script creates the following Azure resources:
+- **Azure Container Registry** — stores the Docker image
+- **Azure Storage Account + File Share** — holds `server-settings.json` and `server-log.txt`
+- **Azure Container Apps environment + app** — runs the server container
+
+If the `copperhead-client` directory is found alongside `copperhead-server`, the client files are automatically bundled into the Docker image. The server serves them at the root URL, so players can access both the client and server from a single URL.
+
+**Step 1: Configure Azure settings**
+
+Copy `server-settings.json` to `server-settings.azure.json` and customize it for your Azure deployment. This file is gitignored so your Azure-specific settings (like `admin_token`) stay private.
+
+```powershell
+copy server-settings.json server-settings.azure.json
+# Edit server-settings.azure.json with your desired settings
+```
+
+**Step 2: Deploy**
+
+If you are using [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli), you can simply say **"deploy to azure"** and the `deploy-to-azure` skill (in `.github/skills/`) will handle the full deployment process automatically, including bundling the client, copying Azure settings, deploying, and reporting the URLs.
+
+To deploy manually:
+
+```powershell
+# Copy Azure settings into place and deploy
+copy server-settings.azure.json server-settings.json
+.\deploy-azure.ps1
+git checkout server-settings.json   # Restore the original
+```
+
+On Linux/macOS or in Codespaces, use `bash deploy-azure.sh` instead.
+
+The script prints the public URL when finished. If the client was bundled, players can visit the URL directly in a browser to play.
+
+**Updating server settings (no redeploy needed):**
+
+`server-settings.json` is stored on an Azure File Share, so you can edit it without redeploying:
+
+1. Open the [Azure Portal](https://portal.azure.com)
+2. Go to **Storage Accounts** → `copperheadstore` → **Data Storage/File shares** → `copperhead-config` → **Browse**
+3. Click `server-settings.json` → **.../Edit**
+4. Save — the server auto-reloads within seconds
+
+The server log file (`server-log.txt`) is also on the same file share for easy access.
+
+**Redeploying (after code changes):**
+
+Run the deploy script again. It rebuilds the Docker image, re-bundles the client, uploads the settings, and updates the container app. The URL stays the same.
+
+**Useful commands:**
+
+```bash
+# View live server logs
+az containerapp logs show --name copperhead-server --resource-group copperhead-rg --follow --format text
+
+# Delete all Azure resources when done
+az group delete --name copperhead-rg --yes --no-wait
+```
+
+**Continuous deployment:**
+
+A GitHub Actions workflow (`.github/workflows/deploy-azure.yml`) automatically rebuilds and redeploys on every push to `main`. See the workflow file for setup instructions (Azure credentials, service principal).
 
 ## API
 

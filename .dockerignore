@@ -1,0 +1,7 @@
+.git/
+.github/
+__pycache__/
+**/__pycache__/
+tests/
+*.log
+server-log.txt
