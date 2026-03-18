@@ -2075,7 +2075,7 @@ class RoomManager:
         ]
         
         return {
-            "version": "4.0.3",
+            "version": "4.0.4",
             "arenas": config.arenas,
             "max_players": max_players,
             "total_players": total_players,
@@ -2381,6 +2381,18 @@ async def root():
 @app.get("/status")
 async def status():
     return room_manager.get_status()
+
+
+@app.get("/settings")
+async def settings():
+    """Return the current server settings file contents.
+    If the settings include an admin_token, it is removed before returning."""
+    if not _config_file_path:
+        return {}
+    settings_data = load_spec_file(_config_file_path)
+    # Remove admin_token for security — never expose it to clients
+    settings_data.pop("admin_token", None)
+    return settings_data
 
 
 @app.get("/rooms/active")

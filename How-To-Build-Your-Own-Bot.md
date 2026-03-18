@@ -4,5 +4,8 @@ We encourage developers to build their own AI-controlled CopperHead bots to play
 
 Follow the guide in the [copperhead-bot](https://github.com/revodavid/copperhead-bot) repository to get started.
 
-This server can launch the default CopperBot AI opponent, which is implemented in the provided `copperbot.py` file.
+The default CopperBot AI opponent, which is launched as needed by the server at 10 difficulty levels, is implemented in the file [`copperbot.py`](copperbot.py) in this repository.
 
+Bots communicate with the server via the API documented at [API.md](API.md). For details on game rules and competition logic, see [game-rules.md](game-rules.md) and [competition-logic.md](competition-logic.md).
+
+A test suite to validate bot communication with the server is provided in the [`copperhead-bot`](https://github.com/revodavid/copperhead-bot) repository in the `tests` folder. You can run this test suite against your bot during development to ensure it can successfully connect and play a game on the server.

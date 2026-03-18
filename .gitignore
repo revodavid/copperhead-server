@@ -21,8 +21,8 @@ Thumbs.db
 
 # Project
 *.log
+server-log.txt
 server-settings.local.json
 server-settings.azure.json
-server-log.txt
 client/
 
