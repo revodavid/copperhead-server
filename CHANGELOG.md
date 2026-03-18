@@ -2,6 +2,14 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [4.0.4] - 2026-03-18
+
+### Added
+- `GET /settings` endpoint to download the current server settings file (admin_token is stripped for security)
+
+### Changed
+- Version bump to 4.0.4
+
 ## [4.0.1] - 2026-03-10
 
 ### Added
