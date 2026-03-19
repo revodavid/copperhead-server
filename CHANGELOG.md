@@ -2,6 +2,12 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [4.0.5] - 2026-03-18
+
+### Changed
+- Updated deploy-to-azure skill to use pwsh and fix env var chaining
+- Version bump to 4.0.5
+
 ## [4.0.4] - 2026-03-18
 
 ### Added
