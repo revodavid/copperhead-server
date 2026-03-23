@@ -45,11 +45,16 @@ Rebuild the Docker image, upload `server-settings.azure.json` to the Azure File 
    Copy-Item server-settings.azure.json server-settings.json -Force
    ```
 
-4. Run the deploy script with the correct resource group.
+4. Set the resource group environment variable. This MUST be done as a separate command — it cannot be chained with `&&`.
 
    ```powershell
    $env:RESOURCE_GROUP = "copperhead-west-rg"
-   .\deploy-azure.ps1
+   ```
+
+5. Run the deploy script using `pwsh` (PowerShell 7). IMPORTANT: Do NOT use `powershell` — that launches Windows PowerShell 5.1 which lacks required features like `Get-Date -AsUTC`.
+
+   ```powershell
+   pwsh -ExecutionPolicy Bypass -File .\deploy-azure.ps1
    ```
 
    This script will:
@@ -60,13 +65,15 @@ Rebuild the Docker image, upload `server-settings.azure.json` to the Azure File 
    - Clean up bundled client files after build
    - Print the deployed URL and admin console URL
 
-5. After deployment, restore the original `server-settings.json` from git.
+   The script runs for 2-3 minutes. Run it in **async mode** and monitor output with `read_powershell`.
+
+6. After deployment, restore the original `server-settings.json` from git.
 
    ```powershell
    git checkout server-settings.json
    ```
 
-6. Get the admin token. Download `server-log.txt` from the Azure File Share and extract the token:
+7. Get the admin token. The token may be a fixed value from `server-settings.azure.json` (check the `admin_token` field there first). If not configured, download `server-log.txt` from the Azure File Share and extract the auto-generated token:
 
    ```powershell
    $key = az storage account keys list --account-name copperheadstore --resource-group copperhead-west-rg --query "[0].value" -o tsv
@@ -74,7 +81,7 @@ Rebuild the Docker image, upload `server-settings.azure.json` to the Azure File 
    $adminToken = Get-Content "$env:TEMP\server-log.txt" | Select-String "Admin token: (\w+)" | ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -Last 1
    ```
 
-7. Report to the user using the **Azure-hosted client URL** (not GitHub Pages). The deployed server serves the client at its root URL:
+8. Report to the user using the **Azure-hosted client URL** (not GitHub Pages). The deployed server serves the client at its root URL:
    - Player URL: `https://<FQDN>/?server=wss%3A%2F%2F<FQDN>%2Fws%2F`
    - Admin URL: `https://<FQDN>/?server=wss%3A%2F%2F<FQDN>%2Fws%2F&admin=<TOKEN>`
    - Where `<FQDN>` is the Container App FQDN from the deploy script output
@@ -84,7 +91,8 @@ Rebuild the Docker image, upload `server-settings.azure.json` to the Azure File 
 ## Important notes
 
 - Always use `$env:RESOURCE_GROUP = "copperhead-west-rg"` — this is the existing resource group in westus2.
-- The deploy script runs for 2-3 minutes. Run it in async mode and monitor output.
-- The admin token may not be captured from logs if polling traffic pushes startup messages out. In that case, tell the user to check the Azure Portal File Share for `server-log.txt` which contains the admin token.
+- **Use `pwsh` not `powershell`** to run the deploy script. `powershell` invokes Windows PowerShell 5.1 which does not support `Get-Date -AsUTC` and will fail.
+- **Set `$env:RESOURCE_GROUP` as a separate command**, not chained with `&&`. PowerShell does not allow `$env:VAR = "value"` assignments in `&&` chains.
+- The admin token may not be captured from logs if polling traffic pushes startup messages out. In that case, check `server-settings.azure.json` for a configured `admin_token`, or tell the user to check the Azure Portal File Share for `server-log.txt`.
 - Do NOT push to GitHub — this skill only deploys to Azure.
 - The project root is the parent directory that contains `copperhead-server\`.
