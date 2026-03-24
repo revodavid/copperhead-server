@@ -17,6 +17,23 @@ Each player's snake moves automatically in the current direction at a fixed spee
 
 Snakes cannot reverse direction (e.g., if moving right, they cannot move left). Players must make successive left or right turns to change direction.
 
+## Head-to-Head Collisions
+
+A head-to-head collision occurs when both snakes' heads occupy the same cell on the same tick, or when both snakes cross paths (each snake's head moves into the cell the other's head just vacated). In both cases both snakes crash simultaneously and the following tiebreaker rules apply:
+
+1. **Longer snake wins.** The player with the longer snake is awarded the point.
+2. **Most-recent direction change loses.** If both snakes are the same length, the player who changed direction on the last move loses and their opponent wins the point.
+3. **Draw.** If both snakes are the same length and both changed direction on the last move (or neither did), the game ends in a draw and no points are awarded.
+
+## Forfeits
+
+If no fruit is collected by either player for 30 seconds, the game ends in a stalemate and a winner is determined by snake length:
+
+1. **Longer snake wins.** The player with the longer snake at the time of the stalemate is awarded the point.
+2. **Draw.** If both snakes are the same length, the game ends in a draw and no points are awarded.
+
+The 30-second timeout is configurable via the `game_timeout` server setting.
+
 ## Fruit Bonuses
 
 During gameplay, various fruit items may appear on the game grid. These fruits provide different bonuses when collected by a player's snake. The available fruit bonuses are as follows:
