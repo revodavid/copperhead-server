@@ -13,8 +13,10 @@ from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from typing import Optional
 from enum import Enum
+import aiohttp
 
 # Configure logging
 logging.basicConfig(
@@ -2430,6 +2432,134 @@ async def clear_history(request: Request):
     Competition.championship_history.clear()
     logger.info("Championship history cleared by admin")
     return {"success": True, "message": "Championship history cleared"}
+
+
+# ============================================================================
+# Agent Chat Proxy
+# ============================================================================
+
+# Default Foundry agent endpoint. Override with the AGENT_ENDPOINT env var
+# or the "agent_endpoint" field in the server settings JSON file.
+AGENT_ENDPOINT = os.getenv("AGENT_ENDPOINT",
+    "https://copperhead-foundry-eus2.services.ai.azure.com/api/projects/copperhead-agent-project/openai/v1/responses")
+AGENT_NAME = os.getenv("AGENT_NAME", "copperhead-agent")
+AGENT_VERSION = os.getenv("AGENT_VERSION", "14")
+
+
+@app.post("/agent/chat")
+async def agent_chat(request: Request):
+    """Proxy chat requests to the CopperHead Foundry agent.
+
+    Accepts:
+        {"messages": [{"role": "user", "content": "..."}, ...]}
+
+    The api-key header is forwarded to the Foundry Responses API for
+    authentication. Returns the agent's text response as:
+        {"text": "..."}
+    """
+    # Require an API key from the client
+    api_key = request.headers.get("api-key")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing api-key header")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    messages = body.get("messages", [])
+    if not messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
+
+    # Build the Foundry Responses API request.
+    # Send conversation history as a list of {role, content} items.
+    # Include agent_reference to target the specific published agent.
+    foundry_input = [
+        {"role": m["role"], "content": m["content"]}
+        for m in messages
+    ]
+
+    foundry_payload = {
+        "input": foundry_input,
+        "agent_reference": {
+            "name": AGENT_NAME,
+            "version": AGENT_VERSION,
+            "type": "agent_reference",
+        },
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                AGENT_ENDPOINT,
+                json=foundry_payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "api-key": api_key,
+                },
+                timeout=aiohttp.ClientTimeout(total=120),
+            ) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    logger.warning(f"Agent proxy: Foundry returned {resp.status}: {error_text[:200]}")
+                    return JSONResponse(
+                        status_code=resp.status,
+                        content={"error": f"Foundry API error: {error_text[:500]}"},
+                    )
+
+                result = await resp.json()
+
+                # The Foundry Responses API may return HTTP 200 but with
+                # a "failed" status in the body (e.g. agent crashed).
+                if result.get("status") == "failed":
+                    err = result.get("error", {})
+                    msg = err.get("message", "Unknown agent error") if isinstance(err, dict) else str(err)
+                    logger.warning(f"Agent proxy: agent returned failed status: {msg}")
+                    return JSONResponse(
+                        status_code=502,
+                        content={"error": f"Agent error: {msg}"},
+                    )
+
+    except asyncio.TimeoutError:
+        return JSONResponse(status_code=504, content={"error": "Agent request timed out"})
+    except aiohttp.ClientError as e:
+        logger.error(f"Agent proxy: connection error: {e}")
+        return JSONResponse(status_code=502, content={"error": "Could not reach the agent"})
+
+    # Extract text from the Foundry Responses API response.
+    # The response format includes an "output" array with message items.
+    text = _extract_agent_text(result)
+    return {"text": text}
+
+
+def _extract_agent_text(result):
+    """Extract the assistant's text from a Foundry Responses API response.
+
+    Tries several paths to handle different response shapes gracefully.
+    """
+    # Path 1: top-level "output_text" (OpenAI SDK convenience field)
+    if result.get("output_text"):
+        return result["output_text"]
+
+    # Path 2: output[].content[].text (standard Responses API format)
+    for item in result.get("output", []):
+        if item.get("type") == "message":
+            for part in item.get("content", []):
+                if part.get("type") == "output_text" and part.get("text"):
+                    return part["text"]
+
+    # Path 3: output[].text (simplified format)
+    for item in result.get("output", []):
+        if item.get("text"):
+            return item["text"]
+
+    # Path 4: top-level "text" field
+    if result.get("text"):
+        return result["text"]
+
+    # Path 5: return the raw result as a string
+    logger.warning(f"Agent proxy: unexpected response format: {json.dumps(result)[:300]}")
+    return json.dumps(result)
 
 
 # ============================================================================
