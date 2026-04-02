@@ -263,7 +263,8 @@ properties:
 "@
 
 $yamlPath = Join-Path $env:TEMP "copperhead-app.yaml"
-$yamlContent | Out-File -FilePath $yamlPath -Encoding utf8
+# Use WriteAllText to avoid BOM issues that can cause Azure API parsing errors
+[System.IO.File]::WriteAllText($yamlPath, $yamlContent)
 
 $appExists = az containerapp show --name $AppName --resource-group $ResourceGroup 2>&1
 if ($LASTEXITCODE -eq 0) {
@@ -274,13 +275,33 @@ if ($LASTEXITCODE -eq 0) {
         --yaml $yamlPath `
         --output table
 } else {
+    # Create the app first with CLI args (az containerapp create --yaml can fail
+    # with certain YAML boolean/type parsing issues), then update with YAML to
+    # add volume mounts.
     az containerapp create `
         --name $AppName `
         --resource-group $ResourceGroup `
         --environment $Environment `
-        --yaml $yamlPath `
+        --image $Image `
+        --registry-server $RegistryServer `
+        --registry-username $AcrUsername `
+        --registry-password $AcrPassword `
+        --target-port $ContainerPort `
+        --ingress external `
+        --cpu $Cpu `
+        --memory $Memory `
+        --min-replicas $MinReplicas `
+        --max-replicas $MaxReplicas `
         --output table
     if ($LASTEXITCODE -ne 0) { Write-Err "Failed to create Container App."; exit 1 }
+
+    Write-Info "Adding volume mount via YAML update..."
+    az containerapp update `
+        --name $AppName `
+        --resource-group $ResourceGroup `
+        --yaml $yamlPath `
+        --output table
+    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to update Container App with volume mount."; exit 1 }
 }
 
 # Clean up temp file
