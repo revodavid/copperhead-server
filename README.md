@@ -1,6 +1,6 @@
 # CopperHead Server
 
-Version: 4.0.6
+Version: 4.0.7
 
 A server for a 2-player Snake game.The CopperHead server manages game state and multi-round knockout competitions, communicating with human and robot clients via WebSocket API.
 
@@ -150,24 +150,29 @@ The deploy script creates the following Azure resources:
 
 If the `copperhead-client` directory is found alongside `copperhead-server`, the client files are automatically bundled into the Docker image. The server serves them at the root URL, so players can access both the client and server from a single URL.
 
-**Step 1: Configure Azure settings**
+**Step 1: Log into Azure**
+
+From the command line, log into Azure with
+
+```
+az login --use-device-code
+```
+
+TIP: Log into Azure before launching GitHub Copilot CLI (if you are using it). 
+
+BONUS TIP: To log into a specific tenant, add `--tenant <tenant_id>` to the command. This is useful if you have access to multiple Azure tenants.
+
+**Step 2: Configure game server settings**
 
 Copy `server-settings.json` to `server-settings.azure.json` and customize it for your Azure deployment. This file is gitignored so your Azure-specific settings (like `admin_token`) stay private.
 
-```powershell
-copy server-settings.json server-settings.azure.json
-# Edit server-settings.azure.json with your desired settings
-```
-
-**Step 2: Deploy**
+**Step 3: Deploy**
 
 If you are using [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli), you can simply say **"deploy to azure"** and the `deploy-to-azure` skill (in `.github/skills/`) will handle the full deployment process automatically, including bundling the client, copying Azure settings, deploying, and reporting the URLs.
 
-To deploy manually:
+To deploy manually with PowerShell on Windows, run:
 
 ```powershell
-# Copy Azure settings into place and deploy
-copy server-settings.azure.json server-settings.json
 .\deploy-azure.ps1
 git checkout server-settings.json   # Restore the original
 ```

@@ -2,6 +2,11 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [4.0.7] - 2026-04-02
+
+### Fixed
+- Fix container app creation YAML parsing error in deploy script
+
 ## [4.0.6] - 2026-03-23
 
 ### Changed
