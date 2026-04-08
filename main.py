@@ -880,7 +880,7 @@ class Competition:
         self._next_round_task = asyncio.create_task(self._start_next_round(generation))
     
     async def _start_next_round(self, generation: int):
-        """Wait, optionally pause for admin, then create next round matches.
+        """Wait, create matches, optionally pause for admin, then let games run.
         
         Runs as a separate task (outside the competition lock) so that
         cancel/reset can proceed immediately without waiting for the delay.
@@ -892,7 +892,11 @@ class Competition:
         if self._generation != generation:
             return
 
-        # Auto-pause between rounds when auto_start is "never"
+        # Create the match rooms so the match table is populated
+        await self._create_round_matches()
+
+        # Auto-pause between rounds when auto_start is "never".
+        # Games are frozen because game loops check _pause_event each tick.
         if config.auto_start == "never":
             self.state = CompetitionState.PAUSED
             self._pause_event.clear()
@@ -904,8 +908,6 @@ class Competition:
             if self._generation != generation:
                 logger.info("🔄 Round advancement cancelled during pause")
                 return
-
-        await self._create_round_matches()
     
     async def _broadcast_competition_status(self):
         """Send competition status to all players."""
