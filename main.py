@@ -1521,7 +1521,7 @@ class GameRoom:
                     "type": "match_assigned",
                     "room_id": self.room_id,
                     "player_id": player_id,
-                    "opponent": self.names[3 - player_id] if (3 - player_id) in self.names else "Opponent",
+                    "opponent": self.names[3 - player_id] if (3 - player_id) in self.competition_players else "Opponent",
                     "points_to_win": config.points_to_win,
                     "game": self.game.to_dict()
                 })
