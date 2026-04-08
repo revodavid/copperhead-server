@@ -2,6 +2,11 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [4.0.8] - 2026-04-08
+
+### Changed
+- Version bump to 4.0.8
+
 ## [4.0.7] - 2026-04-02
 
 ### Added
