@@ -908,6 +908,13 @@ class Competition:
             if self._generation != generation:
                 logger.info("🔄 Round advancement cancelled during pause")
                 return
+
+            # Start games in rooms where players readied up during the pause
+            for room in room_manager.rooms.values():
+                if len(room.ready) >= 2 and not room.game.running:
+                    game_task_active = room.game_task and not room.game_task.done()
+                    if not game_task_active:
+                        await room.start_game()
     
     async def _broadcast_competition_status(self):
         """Send competition status to all players."""
