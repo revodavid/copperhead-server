@@ -4,8 +4,17 @@ All notable changes to the CopperHead Server are documented in this file.
 
 ## [4.0.7] - 2026-04-02
 
+### Added
+- New bot implementations: `shybot.py` and `ultrabot.py` in bot-library
+- `/agent/chat` proxy endpoint for Foundry agent integration
+
 ### Fixed
 - Fix container app creation YAML parsing error in deploy script
+
+### Changed
+- When `auto_start` is `"never"`, tournament auto-pauses between rounds; admin must click Resume Tournament to start next round (closes #23)
+- Default server settings tweaks
+- Between-round delay no longer holds the competition lock
 
 ## [4.0.6] - 2026-03-23
 

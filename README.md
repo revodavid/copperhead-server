@@ -89,7 +89,7 @@ All players join via a **lobby** (waiting room) before entering the competition.
 The `auto_start` setting in `server-settings.json` controls how players are admitted and competitions start:
 - **`"always"`** — Players are automatically assigned to match slots as they join. The competition starts as soon as all slots are filled. Ideal for unattended servers.
 - **`"admit_only"`** (default) — Players are automatically assigned to match slots, but an admin must click **Start Competition** to begin. After each competition, the admin must start again.
-- **`"never"`** — The admin manually assigns players to slots (via **Admit**) and starts the competition. Full manual control.
+- **`"never"`** — The admin manually assigns players to slots (via **Admit**) and starts the competition. The tournament also auto-pauses between rounds, requiring the admin to click **Resume Tournament** to start the next round. Full manual control.
 
 The `"never"`option is especially useful for [hosting Bot Hack Tournaments](How-To-Host-A-Bot-Hack-Tournament.md) where the host needs to manage players and coordinate when play begins.
 

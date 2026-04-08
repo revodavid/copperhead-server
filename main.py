@@ -473,6 +473,8 @@ class Competition:
         self.reset_start_time: Optional[float] = None  # Track when reset countdown started
         self.countdown_remaining: int = 0  # Current countdown seconds remaining
         self._countdown_task: Optional[asyncio.Task] = None  # Background countdown task
+        self._next_round_task: Optional[asyncio.Task] = None  # Scheduled next-round start
+        self._generation = 0  # Incremented on every reset; used to detect stale tasks
         # Pause/resume: event is set (unblocked) when running, cleared when paused
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # Start unpaused
@@ -497,10 +499,14 @@ class Competition:
         self.current_bye_uid = None
         self.reset_start_time = None
 
-        # Cancel any running countdown from the previous tournament cycle.
+        # Cancel any running countdown or pending round-start from the previous cycle.
         if self._countdown_task and not self._countdown_task.done():
             self._countdown_task.cancel()
         self._countdown_task = None
+        if self._next_round_task and not self._next_round_task.done():
+            self._next_round_task.cancel()
+        self._next_round_task = None
+        self._generation += 1
         self._next_uid = 1
         
         if config.auto_start == "always":
@@ -869,8 +875,36 @@ class Competition:
             logger.info(f"🎫 {bye_player.name} auto-advances via Bye")
         
         await self._broadcast_competition_status()
-        # Pause so observers can see round results before next round begins
+        # Schedule the next round outside the lock so cancel/reset can proceed
+        generation = self._generation
+        self._next_round_task = asyncio.create_task(self._start_next_round(generation))
+    
+    async def _start_next_round(self, generation: int):
+        """Wait, optionally pause for admin, then create next round matches.
+        
+        Runs as a separate task (outside the competition lock) so that
+        cancel/reset can proceed immediately without waiting for the delay.
+        """
+        # Brief pause so observers can see round results
         await asyncio.sleep(5)
+
+        # Abort if the competition was reset while we waited
+        if self._generation != generation:
+            return
+
+        # Auto-pause between rounds when auto_start is "never"
+        if config.auto_start == "never":
+            self.state = CompetitionState.PAUSED
+            self._pause_event.clear()
+            logger.info("⏸️ Auto-paused between rounds (auto_start=never). Admin must resume.")
+            await self._broadcast_competition_status()
+            await self._pause_event.wait()
+
+            # Abort if competition was cancelled/reset during the pause
+            if self._generation != generation:
+                logger.info("🔄 Round advancement cancelled during pause")
+                return
+
         await self._create_round_matches()
     
     async def _broadcast_competition_status(self):
