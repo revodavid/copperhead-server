@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from typing import Optional
 from enum import Enum
+import hashlib
 import aiohttp
 
 # Configure logging
@@ -2937,14 +2938,25 @@ def apply_spec_to_config(spec: dict):
                 config.fruits[fruit_type]["lifetime"] = props.get("lifetime", 0)
 
 
-# Global variable to track config file modification time
+# Global variables to track config file changes.
+# We track both mtime and a content hash because network file systems
+# (like Azure File Shares) don't always update mtime reliably.
 _config_file_mtime: float = 0.0
+_config_file_hash: str = ""
 _config_file_path: str = ""
+
+
+def _hash_file(path: str) -> str:
+    """Return the SHA-256 hex digest of a file's contents."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        h.update(f.read())
+    return h.hexdigest()
 
 
 async def watch_config_file():
     """Background task that watches for config file changes and restarts competition."""
-    global _config_file_mtime
+    global _config_file_mtime, _config_file_hash
     
     if not _config_file_path:
         return
@@ -2955,29 +2967,40 @@ async def watch_config_file():
         try:
             current_mtime = os.path.getmtime(_config_file_path)
             
-            if current_mtime > _config_file_mtime:
-                _config_file_mtime = current_mtime
-                logger.info(f"🔄 Config file changed, attempting to reload...")
-                
-                # Try to load and validate the new config
-                spec = load_spec_file(_config_file_path)
-                if not spec:
-                    logger.warning("⚠️ Config file is empty or invalid JSON, keeping current settings")
-                    continue
-                
-                if not validate_spec(spec):
-                    logger.warning("⚠️ Config file has invalid values, keeping current settings")
-                    continue
-                
-                # Apply new config
-                apply_spec_to_config(spec)
-                _setup_file_logging(config.log_file)
-                logger.info(f"✅ Config reloaded: {config.arenas} arenas, {config.points_to_win} points to win, {config.grid_width}x{config.grid_height} grid")
-                
-                # Restart the competition with new settings
-                await competition.start_waiting()
-                logger.info("🔄 Competition restarted with new settings")
-                
+            # Quick check: if mtime changed, the file definitely changed.
+            # If mtime is the same, also compare a content hash as a fallback
+            # for network file systems that don't update mtime reliably.
+            changed = current_mtime > _config_file_mtime
+            if not changed:
+                current_hash = _hash_file(_config_file_path)
+                changed = current_hash != _config_file_hash
+
+            if not changed:
+                continue
+
+            _config_file_mtime = current_mtime
+            _config_file_hash = _hash_file(_config_file_path)
+            logger.info(f"🔄 Config file changed, attempting to reload...")
+            
+            # Try to load and validate the new config
+            spec = load_spec_file(_config_file_path)
+            if not spec:
+                logger.warning("⚠️ Config file is empty or invalid JSON, keeping current settings")
+                continue
+            
+            if not validate_spec(spec):
+                logger.warning("⚠️ Config file has invalid values, keeping current settings")
+                continue
+            
+            # Apply new config
+            apply_spec_to_config(spec)
+            _setup_file_logging(config.log_file)
+            logger.info(f"✅ Config reloaded: {config.arenas} arenas, {config.points_to_win} points to win, {config.grid_width}x{config.grid_height} grid")
+            
+            # Restart the competition with new settings
+            await competition.start_waiting()
+            logger.info("🔄 Competition restarted with new settings")
+            
         except FileNotFoundError:
             pass  # File deleted, ignore
         except Exception as e:
@@ -3003,9 +3026,10 @@ def apply_config(args):
                 logger.info(f"📄 Loaded config from server-settings.json")
                 _config_file_path = default_spec
     
-    # Set initial modification time so we don't trigger on startup
+    # Set initial modification time and content hash so we don't trigger on startup
     if _config_file_path and os.path.exists(_config_file_path):
         _config_file_mtime = os.path.getmtime(_config_file_path)
+        _config_file_hash = _hash_file(_config_file_path)
     
     # Apply settings: CLI args override spec file, spec file overrides defaults
     config.arenas = args.arenas if args.arenas is not None else spec.get("arenas", 1)
