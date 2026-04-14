@@ -20,7 +20,7 @@ Rebuild the Docker image, upload `server-settings.azure.json` to the Azure File 
 ## Prerequisites
 
 - Azure CLI installed and logged in (`az login`)
-- The deploy script `copperhead-server\deploy-azure.ps1` exists
+- The deploy script `copperhead-server\tools\deploy-azure.ps1` exists
 - The file `copperhead-server\server-settings.azure.json` exists (gitignored config for Azure)
 - Resource group `copperhead-west-rg` already exists from initial deployment
 
@@ -54,7 +54,7 @@ Rebuild the Docker image, upload `server-settings.azure.json` to the Azure File 
 5. Run the deploy script using `pwsh` (PowerShell 7). IMPORTANT: Do NOT use `powershell` — that launches Windows PowerShell 5.1 which lacks required features like `Get-Date -AsUTC`.
 
    ```powershell
-   pwsh -ExecutionPolicy Bypass -File .\deploy-azure.ps1
+   pwsh -ExecutionPolicy Bypass -File .\tools\deploy-azure.ps1
    ```
 
    This script will:

@@ -1,7 +1,7 @@
 # This workflow deploys the CopperHead server container to Azure Container Apps.
 #
 # Before using this workflow for the first time:
-# 1. Run your deploy-azure.sh script locally to create the Azure resources needed for deployment.
+# 1. Run your tools/deploy-azure.sh script locally to create the Azure resources needed for deployment.
 #    That initial setup should create or confirm the resource group, Azure Container Registry,
 #    and Azure Container App that this workflow updates.
 # 2. Create an Azure service principal (or app registration) with access to the CopperHead resources.
