@@ -39,7 +39,7 @@ PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 
 BOT_REGISTRY = {
     "copperbot": {
-        "path": os.path.join(PROJECT_DIR, "copperbot.py"),
+        "path": os.path.join(PROJECT_DIR, "bot-library", "copperbot.py"),
         "label": "CopperBot",
     },
     "murderbot": {

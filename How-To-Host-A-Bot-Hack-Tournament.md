@@ -38,7 +38,7 @@ Set a time limit for bot development - 1 hour is sufficient for AI-supported cod
 
 Each team should begin by forking the [copperhead-server](https://github.com/revodavid/copperhead-server) repository to their own GitHub account, and updating the `server-settings.json` file to match the host's game rules. Launch a server in GitHub Codespaces for the team to use in development. (TIP: you can restart the server at any time by modifying and saving the `server-settings.json` file.)
 
-Teams should then create their own `hackbot.py` file to build their bot -- copying the default `copperbot.py` file from the repository is a great place to start. (You can find other bots to inspire your own in the `bot-library` directory.) Make sure the bot assigns itself a unique name matching the team name.
+Teams should then create their own `hackbot.py` file to build their bot -- copying the default `bot-library/copperbot.py` file from the repository is a great place to start. (You can find other bots to inspire your own in the `bot-library/` directory.) Make sure the bot assigns itself a unique name matching the team name.
 
 ### How do I write a bot?
 

@@ -1,6 +1,6 @@
 # CopperHead Bot Library
 
-This folder contains bots contributed by participants in CopperHead Bot Hack Tournaments. Feel free to use these bots as inspiration or starting points for your own AI opponents!
+This folder contains the default CopperBot AI opponent and community-contributed bots. Feel free to use these bots as inspiration or starting points for your own AI opponents!
 
 Submit your own bot by creating a pull request with your bot file added to this directory or contained in a sub-directory. Please include a brief description of your bot's strategy in the PR description.
 
@@ -8,6 +8,7 @@ See [How-To-Build-Your-Own-Bot.md](../How-To-Build-Your-Own-Bot.md) for instruct
 
 ## Included Bots
 
+* [`copperbot.py`](copperbot.py) The default AI opponent, launched automatically by the server at 10 difficulty levels.
 * [`murderbot.py`](murderbot.py) Aggressively chases down the opponent to try and cause a collision. By @nonfamousd
 * [`sleepy_snake.py`](sleepy_snake.py) Wanders around the arena, avoids danger, and only becomes more food-aware at higher difficulty levels.
 

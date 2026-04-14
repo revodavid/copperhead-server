@@ -70,7 +70,7 @@ If the configuration file is modified while the server is running, the server wi
 
 * `--speed`: The tick rate of the game in seconds per frame. The default is suitable for human players. Lower values increase game speed.
 
-* `--bots`: Number of AI opponents to pre-populate the lobby with at the start of each competition. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels. Human players who are already in the lobby reduce the number of bots spawned. With `auto_start: "always"` and `bots` equal to or greater than the number of required players, the game runs continuously.
+* `--bots`: Number of AI opponents to pre-populate the lobby with at the start of each competition. Default is 0. Bots are instances of CopperBot (`bot-library/copperbot.py`) at random difficulty levels. Human players who are already in the lobby reduce the number of bots spawned. With `auto_start: "always"` and `bots` equal to or greater than the number of required players, the game runs continuously.
 
 * `--log-file`: Path to the log file for recording significant server events (player joins/disconnects, tournament milestones, admin token, URLs). Default is `server-log.txt`. This can also be set in `server-settings.json` as `"log_file"`.
 
@@ -103,7 +103,7 @@ For backward compatibility, the server also accepts the older `kick-time` and `k
 
 ## Bot Opponents
 
-This repo provides a simple AI opponent (CopperBot - `copperbot.py`) that will be launched as necessary to provide AI opponents. CopperBot's logic is basic and can be easily defeated: you are encouraged to develop your own AI opponents with improved strategies. See [How-To-Build-Your-Own-Bot.md](How-To-Build-Your-Own-Bot.md) for details.
+This repo provides a simple AI opponent (CopperBot - `bot-library/copperbot.py`) that will be launched as necessary to provide AI opponents. CopperBot's logic is basic and can be easily defeated: you are encouraged to develop your own AI opponents with improved strategies. See [How-To-Build-Your-Own-Bot.md](How-To-Build-Your-Own-Bot.md) for details.
 
 ## Observer Mode
 

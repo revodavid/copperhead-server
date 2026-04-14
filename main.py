@@ -1683,9 +1683,9 @@ class GameRoom:
         else:
             server_url = "ws://localhost:8765/ws/"
         
-        # Path to copperbot.py (same directory as main.py)
+        # Path to copperbot.py (in bot-library/ subdirectory)
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(script_dir, "copperbot.py")
+        script_path = os.path.join(script_dir, "bot-library", "copperbot.py")
         
         try:
             self.bot_process = subprocess.Popen(
@@ -2055,7 +2055,7 @@ class RoomManager:
             server_url = "ws://localhost:8765/ws/"
         
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(script_dir, "copperbot.py")
+        script_path = os.path.join(script_dir, "bot-library", "copperbot.py")
         
         try:
             # Spawn two bots with different difficulties for variety
@@ -3105,7 +3105,7 @@ def _spawn_bots_for_lobby(count: int, difficulty: int = None):
         return
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_path = os.path.join(script_dir, "copperbot.py")
+    script_path = os.path.join(script_dir, "bot-library", "copperbot.py")
     
     codespace_name = os.environ.get("CODESPACE_NAME")
     github_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
