@@ -30,7 +30,7 @@ import time
 # ---------------------------------------------------------------------------
 # Bot registry
 # Each entry maps a short name to its script path (relative to the project
-# root, i.e. one level up from this tests/ directory) and a display label
+# root, i.e. one level up from this tools/ directory) and a display label
 # used when printing launch messages.
 # To add a new bot, just add an entry here.
 # ---------------------------------------------------------------------------

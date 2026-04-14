@@ -14,8 +14,4 @@ Run any test with `python -m pytest tests/<filename>` from the `copperhead-serve
 | `test_game_timeout.py` | Tests for in-game timeout and stalemate detection during active gameplay. |
 | `test_tournament.py` | End-to-end integration test that launches a server, runs a full tournament, and verifies a champion is declared correctly. |
 
-## Testing Utilities
 
-| File | Description |
-|------|-------------|
-| `launch_bots.py` | Launches N bots against a running server. Useful for stress-testing tournaments, filling a lobby, or testing a bot against many competitors. Run `python tests/launch_bots.py --help` for usage. |
