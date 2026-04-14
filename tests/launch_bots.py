@@ -29,31 +29,33 @@ import time
 
 # ---------------------------------------------------------------------------
 # Bot registry
-# Each entry maps a short name to its script path (relative to this file's
-# directory) and a display label used when printing launch messages.
+# Each entry maps a short name to its script path (relative to the project
+# root, i.e. one level up from this tests/ directory) and a display label
+# used when printing launch messages.
 # To add a new bot, just add an entry here.
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 
 BOT_REGISTRY = {
     "copperbot": {
-        "path": os.path.join(SCRIPT_DIR, "copperbot.py"),
+        "path": os.path.join(PROJECT_DIR, "copperbot.py"),
         "label": "CopperBot",
     },
     "murderbot": {
-        "path": os.path.join(SCRIPT_DIR, "bot-library", "murderbot.py"),
+        "path": os.path.join(PROJECT_DIR, "bot-library", "murderbot.py"),
         "label": "MurderBot",
     },
     "shybot": {
-        "path": os.path.join(SCRIPT_DIR, "bot-library", "shybot.py"),
+        "path": os.path.join(PROJECT_DIR, "bot-library", "shybot.py"),
         "label": "ShyBot",
     },
     "sleepy_snake": {
-        "path": os.path.join(SCRIPT_DIR, "bot-library", "sleepy_snake.py"),
+        "path": os.path.join(PROJECT_DIR, "bot-library", "sleepy_snake.py"),
         "label": "Sleepy Snake",
     },
     "ultrabot": {
-        "path": os.path.join(SCRIPT_DIR, "bot-library", "ultrabot.py"),
+        "path": os.path.join(PROJECT_DIR, "bot-library", "ultrabot.py"),
         "label": "UltraBot",
     },
 }
