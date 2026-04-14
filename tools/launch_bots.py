@@ -140,9 +140,9 @@ def launch_bots(args):
         try:
             proc = subprocess.Popen(cmd, cwd=SCRIPT_DIR)
             processes.append(proc)
-            print(f"  🤖 #{i + 1}: {name} (PID {proc.pid})")
+            print(f"  [BOT] #{i + 1}: {name} (PID {proc.pid})")
         except Exception as e:
-            print(f"  ❌ #{i + 1}: Failed to launch {bot_info['label']}: {e}")
+            print(f"  [ERR] #{i + 1}: Failed to launch {bot_info['label']}: {e}")
 
         # Small delay between launches to avoid thundering herd
         if i < args.count - 1:
@@ -161,7 +161,7 @@ def wait_for_bots(processes):
                 break
             time.sleep(1)
     except KeyboardInterrupt:
-        print(f"\n⏹️  Stopping {len([p for p in processes if p.poll() is None])} bot(s)...")
+        print(f"\n[STOP] Stopping {len([p for p in processes if p.poll() is None])} bot(s)...")
         for proc in processes:
             if proc.poll() is None:
                 proc.terminate()
@@ -191,7 +191,7 @@ def main():
         print("\nNo bots were launched.")
         sys.exit(1)
 
-    print(f"\n✅ {launched} bot(s) launched. Press Ctrl+C to stop them all.")
+    print(f"\n[OK] {launched} bot(s) launched. Press Ctrl+C to stop them all.")
     wait_for_bots(processes)
 
 
