@@ -27,6 +27,8 @@ In Round 1, players are paired to compete in matches. (Pairing may be controlled
 
 Each match is a series of games played according to the standard CopperHead rules. Winning a game awards one point, and the first player to reach the predefined number of points wins the match and advances to the next round.
 
+If a match reaches three consecutive drawn games, the third draw is converted into a randomly awarded point so the match can continue.
+
 ## Round 2 and subsequent Rounds
 
 In Round 2, winners from the prior round are paired at random to compete in new matches. This process repeats until only two players remain.
@@ -37,7 +39,7 @@ If there are an odd number of players remaining, the player scoring the most poi
 
 The final round is a single match between the last two remaining players. The winner of this match is declared the overall competition champion.
 
-This concludes the competition. After a predefined delay, the server resets and begins accepting new players for a new competition.
+This concludes the competition. After a predefined delay, the server resets and begins accepting new players for a new competition. If the previous tournament was paused or cancelled, the next competition still starts in a normal unpaused state.
 
 # Gameplay Details
 

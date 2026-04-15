@@ -2,9 +2,9 @@
 #
 # Usage:
 #   1. Review the configuration values in the section below.
-#   2. Make sure a Dockerfile exists in this folder.
-#   3. Run this script from PowerShell:
-#      .\deploy-azure.ps1
+#   2. Make sure the repo root contains Dockerfile and server-settings.json.
+#   3. Run this script from the repo root in PowerShell 7:
+#      pwsh -ExecutionPolicy Bypass -File .\tools\deploy-azure.ps1
 #
 # Notes:
 #   - This script uses 'az acr build', so Docker does not need to be installed locally.
@@ -371,7 +371,7 @@ Restart the latest active revision:
   az containerapp revision restart --name $AppName --resource-group $ResourceGroup --revision `$rev
 
 Redeploy (after code changes):
-  .\deploy-azure.ps1
+  pwsh -ExecutionPolicy Bypass -File .\tools\deploy-azure.ps1
 
 Delete all deployed resources:
   az group delete --name $ResourceGroup --yes --no-wait

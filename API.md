@@ -25,7 +25,7 @@ All communication happens over a **single WebSocket connection** — lobby, game
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Server info (`{"name": "CopperHead Server", "status": "running"}`) |
+| `GET` | `/` | Bundled client `index.html` when client assets are included in the server image; otherwise server info JSON (`{"name": "CopperHead Server", "status": "running"}`) |
 | `GET` | `/status` | Server status: rooms, player counts, grid size, speed, points_to_win, competition state, fruits |
 | `GET` | `/settings` | Raw server settings file (admin_token stripped). Returns `{}` if no settings file is loaded |
 | `GET` | `/competition` | Competition state: round, total_rounds, players, champion, pairings, reset countdown |
@@ -46,6 +46,9 @@ All admin endpoints require the admin token, passed as `admin_token` query param
 | `POST` | `/lobby/play` | `name` (optional) | Admin joins the lobby as a player |
 | `POST` | `/lobby/play_bot` | `name` (optional) | Admin joins and a bot is added for a 1v1 (single-arena only) |
 | `POST` | `/start_tournament` | — | Start the tournament with current lobby players |
+| `POST` | `/pause_tournament` | — | Pause the current tournament |
+| `POST` | `/resume_tournament` | — | Resume a paused tournament |
+| `POST` | `/cancel_tournament` | — | Cancel the current tournament and return to the lobby |
 
 ## Messages
 
@@ -88,6 +91,8 @@ Observer-only actions:
 | `competition_status` | `state`, `round`, `total_rounds`, `bye_player`, `pairings` | Round begins or status update |
 | `competition_complete` | `champion`, `reset_in` | Tournament ended |
 | `error` | `message` | Error (lobby full, invalid action, ready timeout, etc.) |
+
+For ordinary draws, `gameover.winner` is `null`. To avoid endless matches, the server converts the third consecutive draw in the same match into a randomly awarded win before sending `gameover`.
 
 ### Server → Client (Observer)
 

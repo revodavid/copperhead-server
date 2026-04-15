@@ -9,7 +9,7 @@ See [How-To-Build-Your-Own-Bot.md](../How-To-Build-Your-Own-Bot.md) for instruct
 ## Included Bots
 
 * [`copperbot.py`](copperbot.py) The default AI opponent, launched automatically by the server to fill empty tournament slots and via the "Add Bot" admin action. Runs at 10 difficulty levels. CopperBot results are not tracked in leaderboards.
-* [`murderbot.py`](murderbot.py) Aggressively chases down the opponent to try and cause a collision. By @nonfamousd
+* [`murderbot.py`](murderbot.py) Prioritizes food until it reaches length 5, then aggressively hunts the tile in front of the opponent's head to force a collision. By @nonfamousd
 * [`sleepy_snake.py`](sleepy_snake.py) Wanders around the arena, avoids danger, and only becomes more food-aware at higher difficulty levels.
 
 ## Bot requirements

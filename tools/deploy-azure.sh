@@ -4,9 +4,9 @@
 #
 # Usage:
 #   1. Review the configuration values in the section below.
-#   2. Make sure a Dockerfile exists in this folder.
-#   3. Run this script from Git Bash, WSL, or another Bash shell:
-#      bash deploy-azure.sh
+#   2. Make sure the repo root contains Dockerfile and server-settings.json.
+#   3. Run this script from the repo root in Git Bash, WSL, or another Bash shell:
+#      bash tools/deploy-azure.sh
 #
 # Notes:
 #   - This script uses 'az acr build', so Docker does not need to be installed locally.
@@ -36,6 +36,7 @@ FILE_SHARE_NAME="copperhead-config"
 MOUNT_PATH="/app/config"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 REGISTRY_SERVER="${ACR_NAME}.azurecr.io"
 IMAGE="${REGISTRY_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
 REVISION_SUFFIX="${REVISION_SUFFIX:-r$(date -u +%y%m%d%H%M%S)}"
@@ -64,13 +65,13 @@ print_error() {
 }
 
 # Helpful early checks prevent confusing Azure CLI errors later.
-if [[ ! -f "${SCRIPT_DIR}/Dockerfile" ]]; then
-    print_error "No Dockerfile was found in ${SCRIPT_DIR}. Create the Dockerfile first, then rerun this script."
+if [[ ! -f "${PROJECT_DIR}/Dockerfile" ]]; then
+    print_error "No Dockerfile was found in ${PROJECT_DIR}. Create the Dockerfile first, then rerun this script."
     exit 1
 fi
 
-if [[ ! -f "${SCRIPT_DIR}/server-settings.json" ]]; then
-    print_error "server-settings.json was not found in ${SCRIPT_DIR}."
+if [[ ! -f "${PROJECT_DIR}/server-settings.json" ]]; then
+    print_error "server-settings.json was not found in ${PROJECT_DIR}."
     exit 1
 fi
 
@@ -159,14 +160,14 @@ az storage file upload \
     --share-name "${FILE_SHARE_NAME}" \
     --account-name "${STORAGE_ACCOUNT}" \
     --account-key "${STORAGE_KEY}" \
-    --source "${SCRIPT_DIR}/server-settings.json" \
+    --source "${PROJECT_DIR}/server-settings.json" \
     --path "server-settings.json" \
     --output none
 print_success "Storage account and file share are ready."
 
 # Bundle client files into the server image if the client repo is alongside the server repo
-CLIENT_SRC="$(dirname "${SCRIPT_DIR}")/copperhead-client"
-CLIENT_DST="${SCRIPT_DIR}/client"
+CLIENT_SRC="$(dirname "${PROJECT_DIR}")/copperhead-client"
+CLIENT_DST="${PROJECT_DIR}/client"
 
 if [ -d "${CLIENT_SRC}" ]; then
     print_section "Bundling client files"
@@ -186,7 +187,7 @@ echo "Building the '${IMAGE_NAME}:${IMAGE_TAG}' image in ACR with 'az acr build'
 az acr build \
     --registry "${ACR_NAME}" \
     --image "${IMAGE_NAME}:${IMAGE_TAG}" \
-    "${SCRIPT_DIR}"
+    "${PROJECT_DIR}"
 print_success "Docker image build completed."
 
 # Clean up bundled client files after build
@@ -297,9 +298,13 @@ print_section "Fetching deployed URL"
 FQDN="$(az containerapp show --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" --query properties.configuration.ingress.fqdn -o tsv)"
 HTTPS_URL="https://${FQDN}"
 WEBSOCKET_URL="wss://${FQDN}"
+WS_ENCODED="$(python3 -c "import urllib.parse; print(urllib.parse.quote('wss://${FQDN}/ws/', safe=''))" 2>/dev/null \
+    || echo "wss%3A%2F%2F${FQDN}%2Fws%2F")"
+PLAYER_URL="https://${FQDN}/?server=${WS_ENCODED}"
 
 echo "HTTP URL:      ${HTTPS_URL}"
 echo "WebSocket URL: ${WEBSOCKET_URL}"
+echo "Player URL:    ${PLAYER_URL}"
 
 # Wait for the container to start, then extract the admin token from the logs.
 echo ""
@@ -309,9 +314,7 @@ ADMIN_TOKEN="$(az containerapp logs show --name "${APP_NAME}" --resource-group "
     | grep -oP 'Admin token: \K\w+' | head -1)"
 
 if [ -n "${ADMIN_TOKEN}" ]; then
-    WS_ENCODED="$(python3 -c "import urllib.parse; print(urllib.parse.quote('wss://${FQDN}/ws/', safe=''))" 2>/dev/null \
-        || echo "wss%3A%2F%2F${FQDN}%2Fws%2F")"
-    ADMIN_URL="https://revodavid.github.io/copperhead-client/?server=${WS_ENCODED}&admin=${ADMIN_TOKEN}"
+    ADMIN_URL="${PLAYER_URL}&admin=${ADMIN_TOKEN}"
     echo ""
     print_success "Admin console:"
     echo "${ADMIN_URL}"

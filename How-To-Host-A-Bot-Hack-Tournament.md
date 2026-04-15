@@ -36,9 +36,11 @@ Share your modified `server-settings.json` file and the server URL for your game
 
 Set a time limit for bot development - 1 hour is sufficient for AI-supported coding, longer for manual coding or more sophisticated strategy development. Ring a bell or use a timer to signal the start and end of the hacking period. When the hacking period is over, the final competition begins!
 
-Each team should begin by forking the [copperhead-server](https://github.com/revodavid/copperhead-server) repository to their own GitHub account, and updating the `server-settings.json` file to match the host's game rules. Launch a server in GitHub Codespaces for the team to use in development. (TIP: you can restart the server at any time by modifying and saving the `server-settings.json` file.)
+Each team should begin by forking the [copperhead-bot](https://github.com/revodavid/copperhead-bot) repository to their own GitHub account. That repo includes the starter `mybot.py` template used in the examples below.
 
-Teams should then create their own `hackbot.py` file to build their bot -- copying the default `bot-library/copperbot.py` file from the repository is a great place to start. (You can find other bots to inspire your own in the `bot-library/` directory.) Make sure the bot assigns itself a unique name matching the team name.
+If a team wants a private practice arena during the hacking period, they can also fork the [copperhead-server](https://github.com/revodavid/copperhead-server) repository, update its `server-settings.json` file to match the host's game rules, and launch a server in GitHub Codespaces for local testing. (TIP: you can restart the server at any time by modifying and saving the `server-settings.json` file.)
+
+Teams should then customize `mybot.py` (or rename it if they prefer) to build their bot. Copying ideas from the default `bot-library/copperbot.py` file is still a great place to start. (You can find other bots to inspire your own in the `bot-library/` directory.) Make sure the bot assigns itself a unique name matching the team name.
 
 ### How do I write a bot?
 
@@ -61,13 +63,13 @@ To test your bot:
 
 1. Launch your bot on the team server:
     ```bash
-    python hackbot.py --name "TeamName Bot" --server wss://github-codespaces-url.app.github.dev/ws/
+    python mybot.py --name "TeamName Bot" --server wss://github-codespaces-url.app.github.dev/ws/
     ```
-   * You can find the server URL in the Codespaces terminal output, and at the bottom of the client lobby screen.
+   * You can find the server URL in the Codespaces terminal output and on the client entry screen.
 
    * You can skip the --name argument if your bot assigns itself a name in code.
 
-2. In the game client, either join as a human player by clicking "Join Game", launch a second bot by running another instance of your bot code, or add a CopperBot opponent by clicking "Add Bot" in the admin interface.
+2. In the game client, either join as a human player by clicking "Join Lobby", launch a second bot by running another instance of your bot code, or add a CopperBot opponent by clicking "Add Bot" in the admin interface.
 
 3. Click the "Observe" button to watch your bot playing the game! Adjust your bot code as needed to improve its performance.
 
@@ -85,13 +87,13 @@ When the hacking period ends, it's time for the final tournament! At this point,
 
 3. Each team connects their bot to the host's public server:
     ```bash
-    python hackbot.py --name "TeamName Bot" --server wss://host-codespaces-url.app.github.dev/ws/
+    python mybot.py --name "TeamName Bot" --server wss://host-codespaces-url.app.github.dev/ws/
     ```
-   * Human players may also join by launching the CopperHead client on the tournament server and clicking "Join Game".
+   * Human players may also join by launching the CopperHead client on the tournament server and clicking "Join Lobby".
 
 4. As admin, use **Admit** to assign players to match slots, and add CopperBot opponents to fill any remaining slots if needed.
 
-5. When all teams are ready, click **Start Competition** in the admin interface. Watch the action on the big screen!
+5. When all teams are ready, click **Start Tournament** in the admin interface. After a successful start, the admin client switches straight into Observe mode so you can watch the action on the big screen.
 
 6. The winning team is the human or bot that wins the final match! Celebrate their victory — oversized champagne bottles optional.
 
