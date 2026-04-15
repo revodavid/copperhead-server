@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from typing import Optional
 from enum import Enum
+import hashlib
 import aiohttp
 
 # Configure logging
@@ -489,6 +490,7 @@ class Competition:
         # Clear all rooms - bots will disconnect themselves when they receive
         # competition_complete or when their websocket closes
         room_manager.clear_all_rooms()
+        self._pause_event.set()  # New tournament cycle should always start unpaused
         
         self.state = CompetitionState.WAITING_FOR_PLAYERS
         self.players.clear()
@@ -649,6 +651,7 @@ class Competition:
     async def _start_competition(self):
         """Start the competition with all registered players."""
         self.state = CompetitionState.IN_PROGRESS
+        self._pause_event.set()  # Clear any leftover paused state from a previous tournament
 
         # Stop the waiting-room countdown once the tournament actually starts.
         countdown_task = self._countdown_task
@@ -1413,6 +1416,7 @@ class GameRoom:
         self.competition_players: dict[int, PlayerInfo] = {}  # player_id -> PlayerInfo
         self.match_reported: bool = False  # Track if match result already reported
         self.match_complete: bool = False  # Track if this room's match is finished
+        self.consecutive_draws: int = 0  # Track unresolved draws within this match
 
     def is_empty(self) -> bool:
         return len(self.connections) == 0
@@ -1682,9 +1686,9 @@ class GameRoom:
         else:
             server_url = "ws://localhost:8765/ws/"
         
-        # Path to copperbot.py (same directory as main.py)
+        # Path to copperbot.py (in bot-library/ subdirectory)
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(script_dir, "copperbot.py")
+        script_path = os.path.join(script_dir, "bot-library", "copperbot.py")
         
         try:
             self.bot_process = subprocess.Popen(
@@ -1741,19 +1745,23 @@ class GameRoom:
                 self.game.update_food_lifetimes()
                 await self.broadcast_state()
                 if not self.game.running:
-                    if self.game.end_reason == "stalemate":
-                        if self.game.winner:
-                            logger.info(f"⏱️ [Room {self.room_id}] Game over by stalemate! Winner: {self.names.get(self.game.winner, 'Unknown')}")
-                        else:
-                            logger.info(f"⏱️ [Room {self.room_id}] Game over by stalemate! Draw.")
-                    elif self.game.winner:
-                        self.wins[self.game.winner] += 1
-                        logger.info(f"🏆 [Room {self.room_id}] Game over! Winner: {self.names.get(self.game.winner, 'Unknown')}")
-                    else:
-                        logger.info(f"🏁 [Room {self.room_id}] Game over! Draw.")
+                    draw_awarded = self._apply_completed_game_result()
+                    winner_name = self.names.get(self.game.winner, "Unknown") if self.game.winner else None
 
-                    if self.game.winner and self.game.end_reason == "stalemate":
-                        self.wins[self.game.winner] += 1
+                    if draw_awarded:
+                        if self.game.end_reason == "stalemate":
+                            logger.info(f"🎲 [Room {self.room_id}] Third consecutive draw by stalemate. Awarded random win to {winner_name}.")
+                        else:
+                            logger.info(f"🎲 [Room {self.room_id}] Third consecutive draw. Awarded random win to {winner_name}.")
+                    elif self.game.end_reason == "stalemate":
+                        if self.game.winner:
+                            logger.info(f"⏱️ [Room {self.room_id}] Game over by stalemate! Winner: {winner_name}")
+                        else:
+                            logger.info(f"⏱️ [Room {self.room_id}] Game over by stalemate! Draw ({self.consecutive_draws}/3).")
+                    elif self.game.winner:
+                        logger.info(f"🏆 [Room {self.room_id}] Game over! Winner: {winner_name}")
+                    else:
+                        logger.info(f"🏁 [Room {self.room_id}] Game over! Draw ({self.consecutive_draws}/3).")
                     
                     # Check for match completion (first to points_to_win)
                     match_winner = self._check_match_complete()
@@ -1802,6 +1810,28 @@ class GameRoom:
             if wins >= config.points_to_win:
                 return player_id
         return None
+
+    def _apply_completed_game_result(self) -> bool:
+        """Apply the finished game's result to the match score.
+
+        Returns True when the third consecutive draw rule converts a draw into
+        a random win for one of the two players.
+        """
+        draw_awarded = False
+
+        if self.game.winner is None:
+            self.consecutive_draws += 1
+            if self.consecutive_draws >= 3:
+                self.game.winner = random.choice(sorted(self.wins.keys()))
+                self.consecutive_draws = 0
+                draw_awarded = True
+        else:
+            self.consecutive_draws = 0
+
+        if self.game.winner is not None:
+            self.wins[self.game.winner] += 1
+
+        return draw_awarded
     
     async def _handle_match_complete(self, winner_player_id: int):
         """Handle match completion in competition mode."""
@@ -1941,6 +1971,18 @@ class RoomManager:
     def get_room_by_id(self, room_id: int) -> Optional[GameRoom]:
         """Get a specific room by ID."""
         return self.rooms.get(room_id)
+
+    def remove_observer_everywhere(self, websocket: WebSocket):
+        """Remove an observer from every room and from the observer lobby.
+
+        Observers are moved through the lobby between rounds. If they switch
+        rooms before the websocket handler updates its local room reference,
+        they can otherwise stay subscribed to two rooms at once.
+        """
+        if websocket in self.lobby_observers:
+            self.lobby_observers.remove(websocket)
+        for room in self.rooms.values():
+            room.disconnect_observer(websocket)
     
     async def broadcast_room_list_to_all_observers(self):
         """Send updated room list to all observers in all rooms."""
@@ -1992,6 +2034,7 @@ class RoomManager:
             ]
             for ws in self.lobby_observers[:]:
                 try:
+                    self.remove_observer_everywhere(ws)
                     # Move from lobby to room
                     first_room.observers.append(ws)
                     await ws.send_json({
@@ -2054,7 +2097,7 @@ class RoomManager:
             server_url = "ws://localhost:8765/ws/"
         
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(script_dir, "copperbot.py")
+        script_path = os.path.join(script_dir, "bot-library", "copperbot.py")
         
         try:
             # Spawn two bots with different difficulties for variety
@@ -2120,7 +2163,7 @@ class RoomManager:
         ]
         
         return {
-            "version": "4.0.7",
+            "version": "4.1.0",
             "arenas": config.arenas,
             "max_players": max_players,
             "total_players": total_players,
@@ -2267,6 +2310,7 @@ async def _handle_lobby_join(websocket: WebSocket):
 async def _start_competition_from_rooms():
     """Start the competition using players already in rooms."""
     competition.state = CompetitionState.IN_PROGRESS
+    competition._pause_event.set()  # Rooms-based start should always begin unpaused
     competition.current_round = 1
     
     # Build pairings from rooms
@@ -2360,13 +2404,13 @@ async def observe_game(websocket: WebSocket):
                 data = json.loads(message)
                 action = data.get("action")
                 
-                if action == "switch_room" and current_room:
+                if action == "switch_room":
                     target_room_id = data.get("room_id")
                     target_room = room_manager.get_room_by_id(target_room_id)
                     
                     if target_room and not target_room.is_empty():
-                        # Disconnect from current room
-                        current_room.disconnect_observer(websocket)
+                        # Remove any stale room subscription before attaching to the new one.
+                        room_manager.remove_observer_everywhere(websocket)
                         # Connect to new room
                         current_room = target_room
                         current_room.observers.append(websocket)
@@ -2404,8 +2448,7 @@ async def observe_game(websocket: WebSocket):
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:
-        if current_room:
-            current_room.disconnect_observer(websocket)
+        room_manager.remove_observer_everywhere(websocket)
 
 
 # Check if client files are bundled (e.g. Azure deployment)
@@ -2937,14 +2980,25 @@ def apply_spec_to_config(spec: dict):
                 config.fruits[fruit_type]["lifetime"] = props.get("lifetime", 0)
 
 
-# Global variable to track config file modification time
+# Global variables to track config file changes.
+# We track both mtime and a content hash because network file systems
+# (like Azure File Shares) don't always update mtime reliably.
 _config_file_mtime: float = 0.0
+_config_file_hash: str = ""
 _config_file_path: str = ""
+
+
+def _hash_file(path: str) -> str:
+    """Return the SHA-256 hex digest of a file's contents."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        h.update(f.read())
+    return h.hexdigest()
 
 
 async def watch_config_file():
     """Background task that watches for config file changes and restarts competition."""
-    global _config_file_mtime
+    global _config_file_mtime, _config_file_hash
     
     if not _config_file_path:
         return
@@ -2955,29 +3009,40 @@ async def watch_config_file():
         try:
             current_mtime = os.path.getmtime(_config_file_path)
             
-            if current_mtime > _config_file_mtime:
-                _config_file_mtime = current_mtime
-                logger.info(f"🔄 Config file changed, attempting to reload...")
-                
-                # Try to load and validate the new config
-                spec = load_spec_file(_config_file_path)
-                if not spec:
-                    logger.warning("⚠️ Config file is empty or invalid JSON, keeping current settings")
-                    continue
-                
-                if not validate_spec(spec):
-                    logger.warning("⚠️ Config file has invalid values, keeping current settings")
-                    continue
-                
-                # Apply new config
-                apply_spec_to_config(spec)
-                _setup_file_logging(config.log_file)
-                logger.info(f"✅ Config reloaded: {config.arenas} arenas, {config.points_to_win} points to win, {config.grid_width}x{config.grid_height} grid")
-                
-                # Restart the competition with new settings
-                await competition.start_waiting()
-                logger.info("🔄 Competition restarted with new settings")
-                
+            # Quick check: if mtime changed, the file definitely changed.
+            # If mtime is the same, also compare a content hash as a fallback
+            # for network file systems that don't update mtime reliably.
+            changed = current_mtime > _config_file_mtime
+            if not changed:
+                current_hash = _hash_file(_config_file_path)
+                changed = current_hash != _config_file_hash
+
+            if not changed:
+                continue
+
+            _config_file_mtime = current_mtime
+            _config_file_hash = _hash_file(_config_file_path)
+            logger.info(f"🔄 Config file changed, attempting to reload...")
+            
+            # Try to load and validate the new config
+            spec = load_spec_file(_config_file_path)
+            if not spec:
+                logger.warning("⚠️ Config file is empty or invalid JSON, keeping current settings")
+                continue
+            
+            if not validate_spec(spec):
+                logger.warning("⚠️ Config file has invalid values, keeping current settings")
+                continue
+            
+            # Apply new config
+            apply_spec_to_config(spec)
+            _setup_file_logging(config.log_file)
+            logger.info(f"✅ Config reloaded: {config.arenas} arenas, {config.points_to_win} points to win, {config.grid_width}x{config.grid_height} grid")
+            
+            # Restart the competition with new settings
+            await competition.start_waiting()
+            logger.info("🔄 Competition restarted with new settings")
+            
         except FileNotFoundError:
             pass  # File deleted, ignore
         except Exception as e:
@@ -3003,9 +3068,10 @@ def apply_config(args):
                 logger.info(f"📄 Loaded config from server-settings.json")
                 _config_file_path = default_spec
     
-    # Set initial modification time so we don't trigger on startup
+    # Set initial modification time and content hash so we don't trigger on startup
     if _config_file_path and os.path.exists(_config_file_path):
         _config_file_mtime = os.path.getmtime(_config_file_path)
+        _config_file_hash = _hash_file(_config_file_path)
     
     # Apply settings: CLI args override spec file, spec file overrides defaults
     config.arenas = args.arenas if args.arenas is not None else spec.get("arenas", 1)
@@ -3081,7 +3147,7 @@ def _spawn_bots_for_lobby(count: int, difficulty: int = None):
         return
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_path = os.path.join(script_dir, "copperbot.py")
+    script_path = os.path.join(script_dir, "bot-library", "copperbot.py")
     
     codespace_name = os.environ.get("CODESPACE_NAME")
     github_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")

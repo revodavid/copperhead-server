@@ -2,6 +2,22 @@
 
 All notable changes to the CopperHead Server are documented in this file.
 
+## [v4.1.0] - 2026-04-14
+
+### Added
+- `launch-bots` Copilot skill for starting multiple bots with `tools/launch_bots.py`
+
+### Changed
+- Version bump to 4.1.0
+- Pause/cancel state now resets cleanly before the next tournament starts
+- After three consecutive drawn games in a match, the server awards a random win to break the tie
+- MurderBot now prioritizes food until length 5, then resumes aggressive play
+- Azure deploy scripts now resolve paths from the server repo root
+- Azure deployment output now reports Azure-hosted player and admin URLs
+
+### Fixed
+- Observer room switching no longer leaves observers subscribed to multiple rooms
+
 ## [4.0.7] - 2026-04-02
 
 ### Added

@@ -11,7 +11,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the server code, including copperbot.py and bot-library/.
+# Copy the rest of the server code, including bot-library/ (contains copperbot.py and other bots).
 COPY . .
 
 # CopperHead listens on port 8765 by default.

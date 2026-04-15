@@ -1,8 +1,8 @@
 # CopperHead Server
 
-Version: 4.0.7
+Version: 4.1.0
 
-A server for a 2-player Snake game.The CopperHead server manages game state and multi-round knockout competitions, communicating with human and robot clients via WebSocket API.
+A server for a 2-player Snake game. The CopperHead server manages game state and multi-round knockout competitions, communicating with human and robot clients via WebSocket API.
 
 ## Quick Start: Play CopperHead in CodeSpaces
 
@@ -18,11 +18,11 @@ A server for a 2-player Snake game.The CopperHead server manages game state and 
 
     ![Play Now link](img/connect-now.png "Play Now")
 
-1. **Add yourself as a player to the lobby**: Edit your name, and then click **Join Game**.
+1. **Add yourself as a player to the lobby**: Edit your name, and then click **Join Lobby**.
 
-1. (optional) **Click Invite Opponent ⧉** and send the URL in the clipboard to a friend. They can follow the link and join the lobby by clicking the Join Game button.
+1. (optional) **Click Invite Opponent ⧉** and send the URL in the clipboard to a friend. They can follow the link and join the lobby by clicking the **Join Lobby** button.
 
-1. **To play against a bot**, just click **Start Competition**.
+1. **To play against a bot**, just click **Start Tournament**.
 
 ## About CopperHead Server
 
@@ -64,21 +64,21 @@ If the configuration file is modified while the server is running, the server wi
 
 * `--reset-delay`: Once a competition is complete, the server will wait this many seconds before resetting. At reset the competition restarts: active bots are terminated, new bots are spawned according to the `--bots` setting (minus any human players already in the lobby), and the server begins accepting new players. 
 
-* `--game-timeout`: Maximum number of seconds a player may wait before signaling ready for a game, or the maximum time a game may continue without either snake collecting a fruit. If the ready timeout expires, the inactive player is disconnected and forfeits. If the in-game fruit timeout expires, the current game ends as a stalemate and the longer snake wins. Equal lengths produce a draw. Default is 30.
+* `--game-timeout`: Maximum number of seconds a player may wait before signaling ready for a game, or the maximum time a game may continue without either snake collecting a fruit. If the ready timeout expires, the inactive player is disconnected and forfeits. If the in-game fruit timeout expires, the current game ends as a stalemate and the longer snake wins. Equal lengths produce a draw for that game. If a match reaches three consecutive drawn games, the third draw is converted into a randomly awarded point to break the tie. Default is 30.
 
 * `--grid-size`: Size of the game grid as WIDTHxHEIGHT. 
 
 * `--speed`: The tick rate of the game in seconds per frame. The default is suitable for human players. Lower values increase game speed.
 
-* `--bots`: Number of AI opponents to pre-populate the lobby with at the start of each competition. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels. Human players who are already in the lobby reduce the number of bots spawned. With `auto_start: "always"` and `bots` equal to or greater than the number of required players, the game runs continuously.
+* `--bots`: Number of AI opponents to pre-populate the lobby with at the start of each competition. Default is 0. Bots are instances of CopperBot (`bot-library/copperbot.py`) at random difficulty levels. Human players who are already in the lobby reduce the number of bots spawned. With `auto_start: "always"` and `bots` equal to or greater than the number of required players, the game runs continuously.
 
 * `--log-file`: Path to the log file for recording significant server events (player joins/disconnects, tournament milestones, admin token, URLs). Default is `server-log.txt`. This can also be set in `server-settings.json` as `"log_file"`.
 
 ### Server Settings File options
 
-The command line options may alternatively provided in a server settings file. See `server-settings.json` for defaults that will be used if no command-line options are provided.
+The command line options may alternatively be provided in a server settings file. See `server-settings.json` for defaults that will be used if no command-line options are provided.
 
-If the server settings file is modfied while the server is running, the server will automatically load the new settings, cancel all active games and restart the competition.
+If the server settings file is modified while the server is running, the server will automatically load the new settings, cancel all active games and restart the competition.
 
 Additional options in the server settings file include:
 
@@ -88,22 +88,22 @@ All players join via a **lobby** (waiting room) before entering the competition.
 
 The `auto_start` setting in `server-settings.json` controls how players are admitted and competitions start:
 - **`"always"`** — Players are automatically assigned to match slots as they join. The competition starts as soon as all slots are filled. Ideal for unattended servers.
-- **`"admit_only"`** (default) — Players are automatically assigned to match slots, but an admin must click **Start Competition** to begin. After each competition, the admin must start again.
+- **`"admit_only"`** (default) — Players are automatically assigned to match slots, but an admin must click **Start Tournament** to begin. After each competition, the admin must start again.
 - **`"never"`** — The admin manually assigns players to slots (via **Admit**) and starts the competition. The tournament also auto-pauses between rounds, requiring the admin to click **Resume Tournament** to start the next round. Full manual control.
 
-The `"never"`option is especially useful for [hosting Bot Hack Tournaments](How-To-Host-A-Bot-Hack-Tournament.md) where the host needs to manage players and coordinate when play begins.
+The `"never"` option is especially useful for [hosting Bot Hack Tournaments](How-To-Host-A-Bot-Hack-Tournament.md) where the host needs to manage players and coordinate when play begins.
 
 #### `game-timeout`
 
 `game-timeout` sets two time limits, in seconds, for each game in a match. Before the game starts, it is the ready timeout: if a player does not send the `ready` action before the timeout expires, the server disconnects that player and awards the game to the opponent by forfeit.
 
-During gameplay, `game-timeout` is also the stalemate timeout. If neither snake collects any fruit before the timeout expires, the current game ends immediately. The longer snake wins that game, and if both snakes are the same length, the game is a draw. The default is `30`.
+During gameplay, `game-timeout` is also the stalemate timeout. If neither snake collects any fruit before the timeout expires, the current game ends immediately. The longer snake wins that game, and if both snakes are the same length, the game is a draw. If a match reaches three consecutive drawn games, the third draw is converted into a randomly awarded point. The default is `30`.
 
 For backward compatibility, the server also accepts the older `kick-time` and `kick_time` setting names.
 
 ## Bot Opponents
 
-This repo provides a simple AI opponent (CopperBot - `copperbot.py`) that will be launched as necessary to provide AI opponents. CopperBot's logic is basic and can be easily defeated: you are encouraged to develop your own AI opponents with improved strategies. See [How-To-Build-Your-Own-Bot.md](How-To-Build-Your-Own-Bot.md) for details.
+This repo provides a simple AI opponent (CopperBot - `bot-library/copperbot.py`) that will be launched as necessary to provide AI opponents. CopperBot's logic is basic and can be easily defeated: you are encouraged to develop your own AI opponents with improved strategies. See [How-To-Build-Your-Own-Bot.md](How-To-Build-Your-Own-Bot.md) for details.
 
 ## Observer Mode
 
@@ -173,22 +173,23 @@ If you are using [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-
 To deploy manually with PowerShell on Windows, run:
 
 ```powershell
-.\deploy-azure.ps1
+pwsh -ExecutionPolicy Bypass -File .\tools\deploy-azure.ps1
 git checkout server-settings.json   # Restore the original
 ```
 
-On Linux/macOS or in Codespaces, use `bash deploy-azure.sh` instead.
+On Linux/macOS or in Codespaces, use `bash tools/deploy-azure.sh` instead.
 
-The script prints the public URL when finished. If the client was bundled, players can visit the URL directly in a browser to play.
+The script prints the public HTTP URL plus ready-to-share player and admin URLs when finished. If the client was bundled, players can visit the player URL directly in a browser to play.
 
 **Updating server settings (no redeploy needed):**
 
 `server-settings.json` is stored on an Azure File Share, so you can edit it without redeploying:
 
 1. Open the [Azure Portal](https://portal.azure.com)
-2. Go to **Storage Accounts** → `copperheadstore` → **Data Storage/File shares** → `copperhead-config` → **Browse**
-3. Click `server-settings.json` → **.../Edit**
-4. Save — the server auto-reloads within seconds
+2. Open the storage account used by your deployment
+3. Open **File shares** → `copperhead-config`
+4. Click `server-settings.json` and edit it
+5. Save — the server auto-reloads within seconds
 
 The server log file (`server-log.txt`) is also on the same file share for easy access.
 
@@ -199,11 +200,10 @@ Run the deploy script again. It rebuilds the Docker image, re-bundles the client
 **Useful commands:**
 
 ```bash
-# View live server logs
-az containerapp logs show --name copperhead-server --resource-group copperhead-rg --follow --format text
+# Replace <app-name> and <resource-group> with your deployment values
+az containerapp logs show --name <app-name> --resource-group <resource-group> --follow --format text
 
-# Delete all Azure resources when done
-az group delete --name copperhead-rg --yes --no-wait
+az group delete --name <resource-group> --yes --no-wait
 ```
 
 **Continuous deployment:**

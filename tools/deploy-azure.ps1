@@ -2,9 +2,9 @@
 #
 # Usage:
 #   1. Review the configuration values in the section below.
-#   2. Make sure a Dockerfile exists in this folder.
-#   3. Run this script from PowerShell:
-#      .\deploy-azure.ps1
+#   2. Make sure the repo root contains Dockerfile and server-settings.json.
+#   3. Run this script from the repo root in PowerShell 7:
+#      pwsh -ExecutionPolicy Bypass -File .\tools\deploy-azure.ps1
 #
 # Notes:
 #   - This script uses 'az acr build', so Docker does not need to be installed locally.
@@ -33,7 +33,9 @@ $StorageAccount  = if ($env:STORAGE_ACCOUNT)  { $env:STORAGE_ACCOUNT }  else { "
 $FileShareName   = "copperhead-config"
 $MountPath       = "/app/config"
 
-$ScriptDir       = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptPath      = $MyInvocation.MyCommand.Path
+$ScriptDir       = Split-Path -Parent $ScriptPath
+$ProjectDir      = Split-Path -Parent $ScriptDir
 $RegistryServer  = "$AcrName.azurecr.io"
 $Image           = "$RegistryServer/${ImageName}:${ImageTag}"
 $RevisionSuffix  = "r" + (Get-Date -AsUTC -Format "yyMMddHHmmss")
@@ -47,13 +49,13 @@ function Write-Err($msg)     { Write-Host "ERROR: $msg" -ForegroundColor Red }
 
 # --- Pre-flight checks ---
 
-if (-not (Test-Path "$ScriptDir\Dockerfile")) {
-    Write-Err "No Dockerfile was found in $ScriptDir. Create the Dockerfile first, then rerun this script."
+if (-not (Test-Path "$ProjectDir\Dockerfile")) {
+    Write-Err "No Dockerfile was found in $ProjectDir. Create the Dockerfile first, then rerun this script."
     exit 1
 }
 
-if (-not (Test-Path "$ScriptDir\server-settings.json")) {
-    Write-Err "server-settings.json was not found in $ScriptDir."
+if (-not (Test-Path "$ProjectDir\server-settings.json")) {
+    Write-Err "server-settings.json was not found in $ProjectDir."
     exit 1
 }
 
@@ -146,7 +148,7 @@ az storage file upload `
     --share-name $FileShareName `
     --account-name $StorageAccount `
     --account-key $StorageKey `
-    --source "$ScriptDir\server-settings.json" `
+    --source "$ProjectDir\server-settings.json" `
     --path "server-settings.json" `
     --output none
 
@@ -154,8 +156,8 @@ Write-Ok "Storage account and file share are ready."
 
 # --- Step 5: Bundle client files (if available) ---
 
-$clientSrc = Join-Path (Split-Path $ScriptDir) "copperhead-client"
-$clientDst = Join-Path $ScriptDir "client"
+$clientSrc = Join-Path (Split-Path $ProjectDir) "copperhead-client"
+$clientDst = Join-Path $ProjectDir "client"
 
 if (Test-Path $clientSrc) {
     Write-Section "Bundling client files"
@@ -173,7 +175,7 @@ if (Test-Path $clientSrc) {
 
 Write-Section "Building Docker image in Azure"
 Write-Host "Building the '${ImageName}:${ImageTag}' image in ACR with 'az acr build' so no local Docker install is needed..."
-az acr build --registry $AcrName --image "${ImageName}:${ImageTag}" $ScriptDir
+az acr build --registry $AcrName --image "${ImageName}:${ImageTag}" $ProjectDir
 if ($LASTEXITCODE -ne 0) { Write-Err "Docker image build failed."; exit 1 }
 Write-Ok "Docker image build completed."
 
@@ -313,9 +315,12 @@ Write-Ok "Container App deployment completed."
 
 Write-Section "Fetching deployed URL"
 $Fqdn = az containerapp show --name $AppName --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
+$wsUrl = [uri]::EscapeDataString("wss://$Fqdn/ws/")
+$playerUrl = "https://$Fqdn/?server=$wsUrl"
 
 Write-Host "HTTP URL:      https://$Fqdn"
 Write-Host "WebSocket URL: wss://$Fqdn"
+Write-Host "Player URL:    $playerUrl"
 
 # Wait for the container to start, then extract the admin token from the logs.
 Write-Host ""
@@ -327,8 +332,7 @@ $adminToken = az containerapp logs show --name $AppName --resource-group $Resour
     | Select-Object -First 1
 
 if ($adminToken) {
-    $wsUrl = [uri]::EscapeDataString("wss://$Fqdn/ws/")
-    $adminUrl = "https://revodavid.github.io/copperhead-client/?server=$wsUrl&admin=$adminToken"
+    $adminUrl = "$playerUrl&admin=$adminToken"
     Write-Host ""
     Write-Ok "Admin console:"
     Write-Host $adminUrl
@@ -367,7 +371,7 @@ Restart the latest active revision:
   az containerapp revision restart --name $AppName --resource-group $ResourceGroup --revision `$rev
 
 Redeploy (after code changes):
-  .\deploy-azure.ps1
+  pwsh -ExecutionPolicy Bypass -File .\tools\deploy-azure.ps1
 
 Delete all deployed resources:
   az group delete --name $ResourceGroup --yes --no-wait

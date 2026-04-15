@@ -34,6 +34,8 @@ If no fruit is collected by either player for 30 seconds, the game ends in a sta
 
 The 30-second timeout is configurable via the `game_timeout` server setting.
 
+At the match level, draws do not continue forever: if a match reaches three consecutive drawn games for any reason, the third drawn game is converted into a randomly awarded point.
+
 ## Fruit Bonuses
 
 During gameplay, various fruit items may appear on the game grid. These fruits provide different bonuses when collected by a player's snake. The available fruit bonuses are as follows:
