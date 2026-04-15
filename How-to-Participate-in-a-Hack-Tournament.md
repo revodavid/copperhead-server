@@ -1,6 +1,6 @@
 # Participating in a CopperHead Bot Hack Tournament
 
-Welcome to this CopperHead Bot Hack Tournament! You and your team will build an AI bot to play a 2-player variant of the Snake game, then compete against other teams' bots in a knockout tournament. No prior programming experience is required — AI coding assistants like [GitHub Copilot](https://github.com/features/copilot) can help you build a competitive bot from scratch.
+Welcome to this CopperHead Bot Hack Tournament! You and your team will build an AI bot to play a 2-player variant of the Snake game, then compete against other teams' bots in a knockout tournament. No prior programming experience is required, and we encourage the use of AI coding assistants like [GitHub Copilot](https://github.com/features/copilot) to help you build a competitive bot.
 
 Your host will provide you with a link to access the CopperHead client web app to access the game server used for this tournament. Open the link to get started and try out the game if you're new to CopperHead.
 
@@ -9,7 +9,7 @@ Your host will provide you with a link to access the CopperHead client web app t
 - A name for your team.
 - A laptop with a web browser and internet access. (Any laptop will do.)
 - A [GitHub](https://github.com) account (a free account includes access to GitHub Copilot and Codespaces, and will suffice).
-- The tournament **server URL**. You can find this on the Lobby screen of the CopperHead client.
+- The tournament **server URL**. You can find this on the entry screen of the CopperHead client.
 - The server settings file **`server-settings.json`**. You can download this file from the CopperHead client.
 
 ### Don't want to code?
@@ -20,13 +20,33 @@ If allowed by your Host, you can also test your reflexes and compete against bot
 
 ## Step 1: Set up your development environment
 
-Fork the [copperhead-bot](https://github.com/revodavid/copperhead-bot) repository to your own GitHub account. Then, launch your fork in GitHub Codespaces. This will be your environment for developing your bot and launching it to play on the game server.
+Visit [https://github.com/revodavid/copperhead-bot](https://github.com/revodavid/copperhead-bot) and make sure you are logged in to GitHub.
 
- * To launch a GitHub repository in CodeSpaces, click the green **Code** button, then click the **Codespaces** tab and click "Create CodeSpace on main".
+Fork the **copperhead-bot** repository to your own GitHub account by clicking the "Fork" button in the top-right corner of the repository page. 
+
+Launch your fork in GitHub Codespaces. This will be your environment for developing your bot and launching it to play on the game server.
+
+ * To launch a GitHub repository in Codespaces, click the green **Code** button, then click the **Codespaces** tab and click "Create Codespace on main". It will take a few minutes for the Codespace to initialize.
 
 ## Step 2: Build your bot
 
-Use the file `mybot.py` in the copperhead-bot repository as a starting point for your bot. You can change the file name if you want, but definitely change the bot name in the code to match your team name, so the Host can recognize your bot during the tournament.
+The CodeSpace is ready when you see **Copperhead Bot** in the "[Preview] README.md" pane.
+
+Click the hamburger (three horizontal lines) icon in the top-left corner to open the  menu, and select **Terminal** > **New Terminal Window**. 
+
+![codespaces screenshot](img/codespaces-terminal.png)
+
+Launch GitHub Copilot CLI in the terminal by entering the command:
+
+```bash
+copilot
+```
+
+The file `mybot.py` in the copperhead-bot repository serves as a starting point for your bot. 
+
+Prompt copilot to change the name of your bot in the code to match your team name, and to implement a strategy for playing the game.
+
+Review the [copperhead-bot README.md](https://github.com/revodavid/copperhead-bot/blob/main/README.md) for more tips and inspiration for building your bot.
 
 ### Using AI to help you code
 
@@ -36,8 +56,6 @@ You don't need to be an expert programmer to build a winning bot. AI coding assi
 - [**GitHub Copilot CLI**](https://github.com/features/copilot/cli/) can generate code from natural language prompts, even if you've never programmed before. You can run `copilot` from the terminal in Codespaces, or install it on your laptop and run it on the cloned repository.
 - [**GitHub Copilot in Visual Studio Code**](https://code.visualstudio.com/docs/editor/github-copilot) offers an enhanced coding experience with suggestions and autocompletion.
 - Use any AI assistant or IDE you like! See how your favorite tool fares in the competition.
-
-Review the [copperhead-bot repository](https://github.com/revodavid/copperhead-bot) for tips and inspiration for building your bot.
 
 ### Manually coding your bot
 
@@ -67,10 +85,10 @@ To test your bot on a server, run the following command in the terminal:
 
 1. Run your bot against the server:
     ```bash
-    python hackbot.py --name "TeamName Bot" --server wss://your-codespaces-url.app.github.dev/ws/
+    python mybot.py --name "TeamName Bot" --server wss://your-codespaces-url.app.github.dev/ws/
     ```
    - Find the server URL in the Server Settings section of the client lobby screen. It starts with `wss://`.
-   - Replace the file name `hackbot.py` with your bot's file name, if different.
+   - Replace the file name `mybot.py` with your bot's file name, if different.
    - You can skip the `--name` parameter if your bot already assigns itself a name in code.
 
 2. Open the client to see your bot in the Lobby. If you need an opponent, either click "Join Lobby" as a human, launch a second instance of your bot, or click "Add Bot" to add a CopperBot opponent.
@@ -83,7 +101,7 @@ When the Host announces the hacking period is over, it's time for the knockout t
 
 1. Connect your bot to the Host's public tournament server:
     ```bash
-    python hackbot.py --name "TeamName Bot" --server wss://host-codespaces-url.app.github.dev/ws/
+    python mybot.py --name "TeamName Bot" --server wss://host-codespaces-url.app.github.dev/ws/
     ```
 
 2. Once all teams have joined, the tournament begins automatically. Watch the action on the big screen as bots battle in knockout rounds!

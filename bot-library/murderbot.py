@@ -233,9 +233,12 @@ class RobotPlayer:
         """Calculate the best move using AI logic.
 
         Strategy (murderbot):
-        - Aggressively pursue the opponent's head to cut them off.
-        - Opportunistically grab nearby food along the way (distance threshold
-          scales with aggression).  Higher difficulty => more aggressive.
+        - Prioritize collecting food until length 5.
+        - After reaching length 5, aggressively pursue the tile in front of the
+          opponent's head to cut them off.
+        - Opportunistically grab nearby food along the way once it is big
+        enough to switch back to aggression. Higher difficulty => more
+          aggressive.
         - Aim to move into the tile the opponent is likely to move into
           (one step ahead of their head) so they collide with us.
         """
@@ -342,9 +345,11 @@ class RobotPlayer:
 
         # Aggression factor: 0.1..1.0 (difficulty 1..10)
         aggression = max(0.1, min(1.0, self.difficulty / 10.0))
+        prioritize_food = my_length < 5
 
-        # Food consideration range shrinks as aggression increases
-        food_range = max(1, int(6 * (1.0 - aggression)))
+        # Once MurderBot reaches length 5, it resumes its normal
+        # aggression-first behavior and only considers nearby food.
+        food_range = max(1, int(6 * (1.0 - aggression))) if not prioritize_food else None
 
         # Evaluate safe moves with weights favoring interception
         best_dir = None
@@ -355,40 +360,52 @@ class RobotPlayer:
             score = 0
             new_x, new_y = move["x"], move["y"]
 
+            if prioritize_food and nearest_food:
+                current_food_dist = abs(head[0] - nearest_food["x"]) + abs(head[1] - nearest_food["y"])
+                new_food_dist = abs(new_x - nearest_food["x"]) + abs(new_y - nearest_food["y"])
+
+                if new_x == nearest_food["x"] and new_y == nearest_food["y"]:
+                    score += 4000
+                    if nearest_food.get("type") == "apple":
+                        score += 100
+
+                score += max(0, current_food_dist - new_food_dist) * 700
+                score -= new_food_dist * 10
+
             # Highest priority: move into the tile opponent is likely to move into
             if opp_next and (new_x, new_y) == opp_next:
                 # Avoid committing to a head-on collision if we're not longer
                 if my_length > opp_length:
-                    score += 3000 * aggression
+                    score += 3000 * aggression if not prioritize_food else 150
                 else:
                     # Penalize head-on attempt if we're shorter or equal length
                     score -= 10000
                     # If we're avoiding the collision, bias towards nearby food
-                    if nearest_food:
+                    if nearest_food and food_range is not None:
                         # favor food proportional to (1 - aggression)
                         food_dist = abs(head[0] - nearest_food["x"]) + abs(head[1] - nearest_food["y"])
                         if food_dist <= food_range:
                             score += 800 * (1.0 - aggression)
 
-            # Bonus if move reduces distance to opponent head (pursuit)
-            if opponent and opponent.get("body"):
-                opp_head = opponent["body"][0]
-                cur_dist = abs(head[0] - opp_head[0]) + abs(head[1] - opp_head[1])
-                new_dist = abs(new_x - opp_head[0]) + abs(new_y - opp_head[1])
-                # Reward closing the gap
+            # Bonus if move reduces distance to the tile the opponent is most
+            # likely to enter next rather than their current head tile.
+            if opp_next and not prioritize_food:
+                cur_dist = abs(head[0] - opp_next[0]) + abs(head[1] - opp_next[1])
+                new_dist = abs(new_x - opp_next[0]) + abs(new_y - opp_next[1])
                 score += (cur_dist - new_dist) * 200 * aggression
 
             # Opportunistic food: consider food only if within food_range of current head
-            for food in foods:
-                food_dist_from_head = abs(head[0] - food["x"]) + abs(head[1] - food["y"])
-                if food_dist_from_head <= food_range:
-                    # Small bonus for landing on food (scaled by how close it is)
-                    if new_x == food["x"] and new_y == food["y"]:
-                        score += 500 * (1.0 - aggression)
-                    else:
-                        # prefer moves that reduce distance to that food
-                        new_food_dist = abs(new_x - food["x"]) + abs(new_y - food["y"])
-                        score += max(0, (food_dist_from_head - new_food_dist)) * 30 * (1.0 - aggression)
+            if food_range is not None:
+                for food in foods:
+                    food_dist_from_head = abs(head[0] - food["x"]) + abs(head[1] - food["y"])
+                    if food_dist_from_head <= food_range:
+                        # Small bonus for landing on food (scaled by how close it is)
+                        if new_x == food["x"] and new_y == food["y"]:
+                            score += 500 * (1.0 - aggression)
+                        else:
+                            # prefer moves that reduce distance to that food
+                            new_food_dist = abs(new_x - food["x"]) + abs(new_y - food["y"])
+                            score += max(0, (food_dist_from_head - new_food_dist)) * 30 * (1.0 - aggression)
 
             # Prioritize moves that don't trap us (escape routes)
             escape_routes = count_safe_neighbors(new_x, new_y)
@@ -399,7 +416,7 @@ class RobotPlayer:
             score += edge_dist * 5
 
             # Small bonus for moving adjacent to opponent_next (sets up a block)
-            if opp_next:
+            if opp_next and not prioritize_food:
                 adj = abs(new_x - opp_next[0]) + abs(new_y - opp_next[1])
                 if adj == 1:
                     score += 200 * aggression
